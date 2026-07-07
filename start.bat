@@ -38,7 +38,7 @@ echo.
 
 start /min cmd /c "ping 127.0.0.1 -n 3 >nul && start "" "%URL%""
 
-python -m http.server %PORT% --bind 127.0.0.1
+python serve.py %PORT%
 if errorlevel 1 (
   echo.
   echo [錯誤] 無法啟動伺服器，請確認埠 %PORT% 未被占用。

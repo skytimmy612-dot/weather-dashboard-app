@@ -204,6 +204,7 @@ function weatherFxType(code, hour) {
   if (isSnowy(code)) return "snow";
   if (isRainy(code)) return "rain";
   if (code <= 1) return "clear";
+  if ([2, 3, 45, 48].includes(code)) return "cloud";
   return "none";
 }
 
@@ -224,14 +225,14 @@ function renderWeatherFx(code, hour = new Date().getHours()) {
   els.weatherFx.innerHTML = "";
 
   if (type === "none") return;
-  if (prefersReducedMotion() && type !== "clear") return;
+  if (prefersReducedMotion() && type !== "clear" && type !== "cloud") return;
 
   if (type === "rain" || type === "thunder") {
-    const count = type === "thunder" ? 16 : 14;
+    const count = type === "thunder" ? 28 : 24;
     els.weatherFx.innerHTML = Array.from({ length: count }, () => {
       const left = Math.random() * 100;
-      const delay = Math.random() * 2;
-      const duration = 0.6 + Math.random() * 0.8;
+      const delay = Math.random() * 1.5;
+      const duration = 0.5 + Math.random() * 0.6;
       return `<span class="fx-drop" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s"></span>`;
     }).join("");
   }
@@ -243,6 +244,16 @@ function renderWeatherFx(code, hour = new Date().getHours()) {
       const duration = 3 + Math.random() * 4;
       const size = 3 + Math.random() * 5;
       return `<span class="fx-flake" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s;width:${size}px;height:${size}px"></span>`;
+    }).join("");
+  }
+
+  if (type === "cloud") {
+    els.weatherFx.innerHTML = Array.from({ length: 3 }, (_, i) => {
+      const top = 10 + i * 22 + Math.random() * 8;
+      const delay = -(Math.random() * 12);
+      const duration = 18 + Math.random() * 12;
+      const scale = 0.8 + Math.random() * 0.6;
+      return `<span class="fx-cloud" style="top:${top}%;animation-delay:${delay}s;animation-duration:${duration}s;transform:scale(${scale})"></span>`;
     }).join("");
   }
 }

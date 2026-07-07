@@ -296,7 +296,7 @@ body {
 .weather-fx {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 2;
   pointer-events: none;
   overflow: hidden;
 }
@@ -335,11 +335,12 @@ body {
 
 .fx-drop {
   position: absolute;
-  top: -12%;
-  width: 2px;
-  height: 14px;
-  background: linear-gradient(to bottom, transparent, rgba(91, 155, 213, 0.85));
-  border-radius: 1px;
+  top: -15%;
+  width: 4px;
+  height: 26px;
+  background: linear-gradient(to bottom, rgba(50, 110, 190, 0), rgba(40, 100, 190, 1));
+  border-radius: 2px;
+  box-shadow: 0 0 4px rgba(60, 120, 200, 0.5);
   animation: fxFall linear infinite;
 }
 
@@ -361,6 +362,39 @@ body {
   pointer-events: none;
 }
 
+.fx-cloud {
+  position: absolute;
+  left: -40%;
+  width: 90px;
+  height: 34px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 999px;
+  filter: blur(1px);
+  animation: fxDrift linear infinite;
+}
+
+.fx-cloud::before,
+.fx-cloud::after {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+
+.fx-cloud::before {
+  width: 42px;
+  height: 42px;
+  top: -18px;
+  left: 16px;
+}
+
+.fx-cloud::after {
+  width: 30px;
+  height: 30px;
+  top: -12px;
+  left: 48px;
+}
+
 @keyframes fxGlowPulse {
   0%, 100% { opacity: 0.7; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.05); }
@@ -374,14 +408,14 @@ body {
 @keyframes fxFall {
   0% { transform: translateY(0); opacity: 0; }
   10% { opacity: 1; }
-  90% { opacity: 0.6; }
-  100% { transform: translateY(320px); opacity: 0; }
+  90% { opacity: 0.9; }
+  100% { transform: translateY(440px); opacity: 0; }
 }
 
 @keyframes fxSnowfall {
   0% { transform: translate(0, 0); opacity: 0; }
   10% { opacity: 0.9; }
-  100% { transform: translate(20px, 320px); opacity: 0; }
+  100% { transform: translate(20px, 440px); opacity: 0; }
 }
 
 @keyframes fxFlash {
@@ -391,11 +425,17 @@ body {
   94% { background: rgba(255, 255, 255, 0.15); }
 }
 
+@keyframes fxDrift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(360px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .weather-fx.fx-clear::before,
   .weather-fx.fx-clear::after,
   .fx-drop,
   .fx-flake,
+  .fx-cloud,
   .weather-fx.fx-thunder::after {
     animation: none !important;
   }
