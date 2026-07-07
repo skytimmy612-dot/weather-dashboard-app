@@ -148,12 +148,129 @@ body {
   background: #dcdcdc;
 }
 
+.fav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-light);
+  padding: 0.35rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.fav-btn svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.fav-btn:hover {
+  color: var(--text);
+  background: #f0f0f0;
+}
+
+.fav-btn.active {
+  color: #e6a817;
+}
+
+.fav-btn.active svg path {
+  fill: #e6a817;
+}
+
+.fav-btn:focus-visible {
+  outline: 2px solid var(--brown);
+  outline-offset: 2px;
+}
+
 .search-hint {
   margin: 0;
   padding: 0 0.5rem;
   font-size: 0.78rem;
   color: var(--text-light);
   line-height: 1.4;
+}
+
+.favorite-chips {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0 0.5rem 0.125rem;
+  scrollbar-width: none;
+}
+
+.favorite-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.favorite-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  background: var(--white);
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.favorite-chip.active {
+  border-color: #8ea3b8;
+  background: #eef4fb;
+}
+
+.favorite-chip-btn {
+  border: none;
+  background: transparent;
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--text-mid);
+  padding: 0.35rem 0.5rem 0.35rem 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.favorite-chip.active .favorite-chip-btn {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.favorite-chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-light);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.35rem 0.5rem 0.35rem 0;
+  cursor: pointer;
+}
+
+.favorite-chip-remove:hover {
+  color: var(--text);
+}
+
+.rain-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  background: #e8f2fc;
+  color: #2b4f8a;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.rain-alert-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.rain-alert-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+  color: #2b4f8a;
 }
 
 .app {
@@ -204,6 +321,13 @@ body {
   margin: 0.75rem 0 0;
   color: var(--text-mid);
   font-size: 1rem;
+}
+
+.weather-extras {
+  margin: 0.5rem 0 0;
+  color: var(--text-mid);
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 .weather-icon {

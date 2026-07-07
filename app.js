@@ -8,6 +8,8 @@ const MIN_FOOD_RATING_COUNT = 5;
 const FOOD_SEARCH_RADIUS = 1500;
 
 const STORAGE_KEY = "weather-dashboard-city";
+const FAVORITES_KEY = "weather-dashboard-favorites";
+const MAX_FAVORITES = 5;
 
 const WEATHER_TEXT = {
   0: "晴朗",
@@ -134,7 +136,11 @@ const els = {
   searchHint: $("searchHint"),
   currentTemp: $("currentTemp"),
   weatherDesc: $("weatherDesc"),
+  weatherExtras: $("weatherExtras"),
   weatherIcon: $("weatherIcon"),
+  rainAlert: $("rainAlert"),
+  favoriteBtn: $("favoriteBtn"),
+  favoriteChips: $("favoriteChips"),
   hourlyForecast: $("hourlyForecast"),
   dailyForecast: $("dailyForecast"),
   outfitGrid: $("outfitGrid"),
@@ -186,6 +192,165 @@ function isHot(temp) {
 
 function isCold(temp) {
   return temp < 18;
+}
+
+function uvLevelLabel(uv) {
+  if (uv <= 2) return "低";
+  if (uv <= 5) return "中等";
+  if (uv <= 7) return "高";
+  if (uv <= 10) return "很高";
+  return "極高";
+}
+
+function isSameCity(a, b) {
+  return (
+    Math.abs(a.latitude - b.latitude) < 0.01 &&
+    Math.abs(a.longitude - b.longitude) < 0.01
+  );
+}
+
+function loadFavorites() {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFavorites(list) {
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+}
+
+function isFavorite(city) {
+  return loadFavorites().some((item) => isSameCity(item, city));
+}
+
+function updateFavoriteBtn() {
+  if (!els.favoriteBtn) return;
+  const favorited = isFavorite(currentCity);
+  els.favoriteBtn.classList.toggle("active", favorited);
+  els.favoriteBtn.setAttribute(
+    "aria-label",
+    favorited ? "取消收藏" : "加入收藏"
+  );
+  els.favoriteBtn.title = favorited ? "取消收藏" : "收藏此城市";
+}
+
+function renderFavorites() {
+  if (!els.favoriteChips) return;
+  const list = loadFavorites();
+  if (!list.length) {
+    els.favoriteChips.innerHTML = "";
+    return;
+  }
+
+  els.favoriteChips.innerHTML = list
+    .map(
+      (city, index) => `
+      <div class="favorite-chip${isSameCity(city, currentCity) ? " active" : ""}">
+        <button type="button" class="favorite-chip-btn" data-fav-index="${index}">${city.name}</button>
+        <button type="button" class="favorite-chip-remove" data-fav-remove="${index}" aria-label="移除${city.name}">×</button>
+      </div>`
+    )
+    .join("");
+}
+
+function toggleFavorite() {
+  if (currentCity.latitude == null || currentCity.longitude == null) return;
+
+  let list = loadFavorites();
+  const idx = list.findIndex((item) => isSameCity(item, currentCity));
+
+  if (idx >= 0) {
+    list.splice(idx, 1);
+  } else {
+    if (list.length >= MAX_FAVORITES) {
+      setError(`最多收藏 ${MAX_FAVORITES} 個城市`);
+      return;
+    }
+    list.push({
+      name: currentCity.name,
+      latitude: currentCity.latitude,
+      longitude: currentCity.longitude,
+    });
+  }
+
+  saveFavorites(list);
+  updateFavoriteBtn();
+  renderFavorites();
+}
+
+function removeFavoriteAt(index) {
+  const list = loadFavorites();
+  if (index < 0 || index >= list.length) return;
+  list.splice(index, 1);
+  saveFavorites(list);
+  updateFavoriteBtn();
+  renderFavorites();
+}
+
+function buildRainAlert(weather) {
+  const current = weather.current;
+  if (isRainy(current.weather_code)) {
+    return "目前降雨中，記得帶傘";
+  }
+
+  const hourly = weather.hourly;
+  if (hourly?.precipitation_probability?.length) {
+    let maxProb = 0;
+    for (const hour of [12, 15, 18]) {
+      const idx = nearestHourlyIndex(hourly.time, hour);
+      const prob = hourly.precipitation_probability[idx] ?? 0;
+      if (prob > maxProb) maxProb = prob;
+    }
+    if (maxProb >= 50) {
+      return `今天下午可能降雨（最高 ${Math.round(maxProb)}%），建議攜帶雨具`;
+    }
+  }
+
+  const daily = weather.daily;
+  if (daily?.time?.length > 1) {
+    const tomorrowProb = daily.precipitation_probability_max?.[1] ?? 0;
+    const tomorrowCode = daily.weather_code?.[1];
+    if (tomorrowProb >= 50 || isRainy(tomorrowCode)) {
+      return "明天可能降雨，出門請備雨具";
+    }
+  }
+
+  return null;
+}
+
+function renderRainAlert(weather) {
+  const message = buildRainAlert(weather);
+  if (!message) {
+    els.rainAlert.classList.add("hidden");
+    els.rainAlert.innerHTML = "";
+    return;
+  }
+
+  els.rainAlert.innerHTML = `<span class="rain-alert-icon" aria-hidden="true">${iconSvg("umbrella")}</span><span>${message}</span>`;
+  els.rainAlert.classList.remove("hidden");
+}
+
+function renderWeatherExtras(current) {
+  const feels = Math.round(current.apparent_temperature ?? current.temperature_2m);
+  const wind = Math.round(current.wind_speed_10m ?? 0);
+  const uv = Math.round(current.uv_index ?? 0);
+  els.weatherExtras.textContent = `體感 ${feels}°C · 風速 ${wind} km/h · UV ${uv}（${uvLevelLabel(uv)}）`;
+}
+
+function clearWeatherOnError() {
+  els.weatherDesc.textContent = "查詢失敗，請重新搜尋";
+  els.currentTemp.textContent = "--°C";
+  els.weatherExtras.textContent = "";
+  els.weatherIcon.innerHTML = iconSvg("cloud");
+  els.hourlyForecast.innerHTML = "";
+  els.dailyForecast.innerHTML = "";
+  els.rainAlert.classList.add("hidden");
+  els.rainAlert.innerHTML = "";
 }
 
 function iconSvg(type, code = 0, hour = 12) {
@@ -340,10 +505,13 @@ async function fetchWeather(latitude, longitude) {
   url.searchParams.set("longitude", longitude);
   url.searchParams.set(
     "current",
-    "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature"
+    "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m,uv_index"
   );
-  url.searchParams.set("hourly", "temperature_2m,weather_code");
-  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,weather_code");
+  url.searchParams.set("hourly", "temperature_2m,weather_code,precipitation_probability");
+  url.searchParams.set(
+    "daily",
+    "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max"
+  );
   url.searchParams.set("timezone", "auto");
   url.searchParams.set("forecast_days", "5");
 
@@ -395,11 +563,24 @@ async function queryByCoords(latitude, longitude) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(city));
   } catch (err) {
     setError(err.message || "查詢失敗，請稍後再試");
-    els.weatherDesc.textContent = "查詢失敗，請重新搜尋";
-    els.currentTemp.textContent = "--°C";
-    els.weatherIcon.innerHTML = iconSvg("cloud");
-    els.hourlyForecast.innerHTML = "";
-    els.dailyForecast.innerHTML = "";
+    clearWeatherOnError();
+    renderOutfit(25, 3);
+    renderFoodList([], false, { message: "無法載入美食推薦" });
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function querySavedCity(city) {
+  setError("");
+  setLoading(true);
+  try {
+    const weather = await fetchWeather(city.latitude, city.longitude);
+    renderWeather(city, weather);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(city));
+  } catch (err) {
+    setError(err.message || "查詢失敗，請稍後再試");
+    clearWeatherOnError();
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
   } finally {
@@ -706,12 +887,16 @@ function renderWeather(city, weather) {
   setSearchHint(city.name, true);
   els.currentTemp.textContent = `${temp}°C`;
   els.weatherDesc.textContent = `${label} · 濕度 ${humidity}%`;
+  renderWeatherExtras(current);
   els.weatherIcon.innerHTML = iconSvg("main", code);
 
   renderHourly(weather.hourly);
   renderDaily(weather.daily);
+  renderRainAlert(weather);
   renderOutfit(temp, code);
   loadFoodPlaces(currentCity.latitude, currentCity.longitude);
+  updateFavoriteBtn();
+  renderFavorites();
 }
 
 async function queryCity(cityName) {
@@ -727,11 +912,7 @@ async function queryCity(cityName) {
     );
   } catch (err) {
     setError(err.message || "查詢失敗，請稍後再試");
-    els.weatherDesc.textContent = "查詢失敗，請重新搜尋";
-    els.currentTemp.textContent = "--°C";
-    els.weatherIcon.innerHTML = iconSvg("cloud");
-    els.hourlyForecast.innerHTML = "";
-    els.dailyForecast.innerHTML = "";
+    clearWeatherOnError();
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
   } finally {
@@ -770,6 +951,23 @@ function bindEvents() {
 
   els.locateBtn.addEventListener("click", queryCurrentLocation);
 
+  els.favoriteBtn.addEventListener("click", toggleFavorite);
+
+  els.favoriteChips.addEventListener("click", (e) => {
+    const removeBtn = e.target.closest("[data-fav-remove]");
+    if (removeBtn) {
+      e.stopPropagation();
+      removeFavoriteAt(Number(removeBtn.dataset.favRemove));
+      return;
+    }
+
+    const chipBtn = e.target.closest("[data-fav-index]");
+    if (!chipBtn) return;
+    const list = loadFavorites();
+    const city = list[Number(chipBtn.dataset.favIndex)];
+    if (city) querySavedCity(city);
+  });
+
   els.foodList.addEventListener("click", (e) => {
     const row = e.target.closest(".food-item");
     if (!row) return;
@@ -795,6 +993,8 @@ function bindEvents() {
 async function init() {
   bindEvents();
   setSearchHint(DEFAULT_CITY, false);
+  renderFavorites();
+  updateFavoriteBtn();
   renderOutfit(28, 0);
   if (getPlacesApiKey()) {
     renderFoodList([], false, { loading: true });

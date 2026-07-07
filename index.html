@@ -23,13 +23,19 @@
             autocomplete="off"
             aria-label="城市名稱"
           />
+          <button type="button" class="fav-btn" id="favoriteBtn" aria-label="加入收藏" title="收藏此城市">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.3l-6.2 3.3 1.2-6.9L2 8.7l6.9-1L12 1.5l3.1 6.2 6.9 1-5 5 1.2 6.9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
           <button type="submit" class="search-btn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             查詢
           </button>
         </form>
         <p class="search-hint" id="searchHint">目前顯示：台北市（按查詢取得即時天氣資訊）</p>
+        <div class="favorite-chips" id="favoriteChips" aria-label="收藏城市"></div>
       </section>
+
+      <div class="rain-alert hidden" id="rainAlert" role="status"></div>
 
       <div class="loading hidden" id="loading">查詢天氣中…</div>
       <div class="error hidden" id="error"></div>
@@ -39,6 +45,7 @@
           <div>
             <p class="temp" id="currentTemp">--°C</p>
             <p class="weather-desc" id="weatherDesc">載入中…</p>
+            <p class="weather-extras" id="weatherExtras"></p>
           </div>
           <div class="weather-icon" id="weatherIcon" aria-hidden="true"></div>
         </div>
