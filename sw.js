@@ -1,4 +1,4 @@
-const CACHE = "weather-v2";
+const CACHE = "weather-v3";
 const CORE_ASSETS = [
   "./",
   "index.html",
@@ -33,16 +33,14 @@ self.addEventListener("fetch", (event) => {
   // 天氣、地理編碼、地圖等 API 一律走網路，避免顯示過期資料
   if (url.origin !== self.location.origin) return;
 
+  // network-first：有網路一律抓最新，離線時才回退到快取，避免卡在舊版
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
-          return res;
-        })
-        .catch(() => cached);
-    })
+    fetch(request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((cache) => cache.put(request, copy));
+        return res;
+      })
+      .catch(() => caches.match(request))
   );
 });
