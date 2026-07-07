@@ -136,6 +136,7 @@ const els = {
   weatherDesc: $("weatherDesc"),
   weatherIcon: $("weatherIcon"),
   hourlyForecast: $("hourlyForecast"),
+  dailyForecast: $("dailyForecast"),
   outfitGrid: $("outfitGrid"),
   foodList: $("foodList"),
   loading: $("loading"),
@@ -342,8 +343,9 @@ async function fetchWeather(latitude, longitude) {
     "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature"
   );
   url.searchParams.set("hourly", "temperature_2m,weather_code");
+  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,weather_code");
   url.searchParams.set("timezone", "auto");
-  url.searchParams.set("forecast_days", "1");
+  url.searchParams.set("forecast_days", "5");
 
   const res = await fetchWithTimeout(url.toString());
   if (!res.ok) throw new Error("天氣服務暫時無法使用");
@@ -397,6 +399,7 @@ async function queryByCoords(latitude, longitude) {
     els.currentTemp.textContent = "--°C";
     els.weatherIcon.innerHTML = iconSvg("cloud");
     els.hourlyForecast.innerHTML = "";
+    els.dailyForecast.innerHTML = "";
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
   } finally {
@@ -656,6 +659,31 @@ function renderHourly(hourly) {
   }).join("");
 }
 
+function formatDayLabel(dateStr, index) {
+  if (index === 0) return "今天";
+  if (index === 1) return "明天";
+  return new Date(`${dateStr}T12:00:00`).toLocaleDateString("zh-TW", { weekday: "short" });
+}
+
+function renderDaily(daily) {
+  if (!daily?.time?.length) {
+    els.dailyForecast.innerHTML = "";
+    return;
+  }
+
+  els.dailyForecast.innerHTML = daily.time.slice(0, 5).map((dateStr, index) => {
+    const code = daily.weather_code[index];
+    const maxTemp = Math.round(daily.temperature_2m_max[index]);
+    const minTemp = Math.round(daily.temperature_2m_min[index]);
+    return `
+      <article class="daily-item">
+        <p class="label">${formatDayLabel(dateStr, index)}</p>
+        <div class="mini-icon">${iconSvg("mini", code)}</div>
+        <p class="temp-range"><span class="temp-high">${maxTemp}°</span> / <span class="temp-low">${minTemp}°</span></p>
+      </article>`;
+  }).join("");
+}
+
 function setSearchHint(cityName, isLive = true) {
   const suffix = isLive ? "（即時天氣資料）" : "（按查詢取得即時天氣資訊）";
   els.searchHint.textContent = `目前顯示：${cityName}${suffix}`;
@@ -681,6 +709,7 @@ function renderWeather(city, weather) {
   els.weatherIcon.innerHTML = iconSvg("main", code);
 
   renderHourly(weather.hourly);
+  renderDaily(weather.daily);
   renderOutfit(temp, code);
   loadFoodPlaces(currentCity.latitude, currentCity.longitude);
 }
@@ -702,6 +731,7 @@ async function queryCity(cityName) {
     els.currentTemp.textContent = "--°C";
     els.weatherIcon.innerHTML = iconSvg("cloud");
     els.hourlyForecast.innerHTML = "";
+    els.dailyForecast.innerHTML = "";
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
   } finally {
