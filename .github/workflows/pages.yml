@@ -22,19 +22,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create config.js from secret
+      - name: Validate API key secret
         run: |
-          cat > config.js <<EOF
+          if [ -z "${{ secrets.GOOGLE_PLACES_API_KEY }}" ]; then
+            echo "GOOGLE_PLACES_API_KEY secret is not set."
+            exit 1
+          fi
+
+      - name: Prepare site with config.js
+        run: |
+          mkdir site
+          cp index.html app.js styles.css site/
+          cat > site/config.js <<EOF
           window.APP_CONFIG = {
             GOOGLE_PLACES_API_KEY: "${{ secrets.GOOGLE_PLACES_API_KEY }}",
           };
           EOF
+          test -f site/config.js
 
       - uses: actions/configure-pages@v4
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: site
 
       - id: deployment
         uses: actions/deploy-pages@v4

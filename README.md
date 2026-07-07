@@ -62,7 +62,9 @@ http://localhost:8765/*
 1. Repo → **Settings** → **Secrets and variables** → **Actions**
 2. 新增 Secret：`GOOGLE_PLACES_API_KEY`（值為你的 API Key）
 3. Repo → **Settings** → **Pages** → Source 選 **GitHub Actions**
-4. push 到 `main` 後，Actions 會自動產生 `config.js` 並部署
+4. push 到 `main` 後，Actions 會在 `site/` 資料夾產生 `config.js` 並部署
+
+> 線上版 `config.js` 由 Actions 自動產生，不會出現在 Git 仓库中。
 
 瀏覽 **http://127.0.0.1:8765**（一定要含 **:8765**，只開 `127.0.0.1` 會失敗）
 

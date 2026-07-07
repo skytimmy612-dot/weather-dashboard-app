@@ -533,7 +533,7 @@ async function loadFoodPlaces(latitude, longitude) {
     foodItems = [];
     const message =
       err.message === "NO_API_KEY"
-        ? "無法載入美食推薦，請設定 config.js 中的 Google Places API Key"
+        ? "無法載入美食推薦，請確認 API Key 設定（本機：config.js；線上：GitHub Secret）"
         : "無法載入美食推薦，請稍後再試";
     renderFoodList([], false, { message });
   }
