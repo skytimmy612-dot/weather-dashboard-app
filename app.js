@@ -1417,7 +1417,7 @@ function bindEvents() {
 function registerServiceWorker() {
   if (location.protocol === "file:") return;
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("sw.js").catch(() => {
+  navigator.serviceWorker.register("sw.js?v=2").catch(() => {
     // 註冊失敗不影響主功能
   });
 }

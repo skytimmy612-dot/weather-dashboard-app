@@ -1,4 +1,4 @@
-const CACHE = "weather-v1";
+const CACHE = "weather-v2";
 const CORE_ASSETS = [
   "./",
   "index.html",
