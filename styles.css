@@ -309,6 +309,20 @@ body {
   padding: 0.25rem;
 }
 
+.link-btn.hidden {
+  display: none;
+}
+
+.food-status {
+  background: var(--white);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-mid);
+  list-style: none;
+}
+
 .food-list {
   list-style: none;
   margin: 0;

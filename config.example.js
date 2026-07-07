@@ -1,0 +1,3 @@
+window.APP_CONFIG = {
+  GOOGLE_PLACES_API_KEY: "AIzaSyA89os4NKcKDgU1Supd5wXuG1-CPJaQiNM",
+};

@@ -24,8 +24,59 @@
 - 顯示溫度、天氣描述、濕度
 - 中午 / 下午 / 傍晚 / 晚上 四段預報
 - 依天氣自動產生穿搭建議
-- 附近美食推薦（示範資料，可點擊開啟 Google Maps）
+- 附近美食推薦（Google Places API，4 顆星以上真實餐廳）
 - 記住上次查詢城市
+
+## Google Places API Key 設定
+
+美食推薦需要 **Google Places API (New)** Key。
+
+### 本機開發
+
+```bash
+copy config.example.js config.js
+```
+
+編輯 `config.js`，填入你的 API Key：
+
+```javascript
+window.APP_CONFIG = {
+  GOOGLE_PLACES_API_KEY: "你的_API_Key",
+};
+```
+
+> `config.js` 已加入 `.gitignore`，不會被提交到 GitHub。
+
+### Google Cloud 限制（建議）
+
+在 [Google Cloud Console](https://console.cloud.google.com/) → Credentials → 你的 API Key：
+
+**HTTP referrers：**
+
+```text
+https://skytimmy612-dot.github.io/*
+http://127.0.0.1:8765/*
+http://localhost:8765/*
+```
+
+**API restrictions：** 只勾選 **Places API (New)**
+
+### GitHub Pages 部署（線上版）
+
+1. Repo → **Settings** → **Secrets and variables** → **Actions**
+2. 新增 Secret：`GOOGLE_PLACES_API_KEY`（值為你的 API Key）
+3. Repo → **Settings** → **Pages** → Source 選 **GitHub Actions**
+4. push 到 `main` 後，Actions 會自動產生 `config.js` 並部署
+
+瀏覽 **http://127.0.0.1:8765**（一定要含 **:8765**，只開 `127.0.0.1` 會失敗）
+
+### 本機測試常見問題
+
+| 錯誤 | 原因 | 解法 |
+|------|------|------|
+| `ERR_EMPTY_RESPONSE` | 網址少了埠號，或伺服器未啟動 | 用 `http://127.0.0.1:8765/`，雙擊 `start.bat` |
+| 美食無法載入 | 沒有 `config.js` | `copy config.example.js config.js` 並填入 Key |
+| 埠號被占用 | 舊的 cmd 視窗還在跑 | 關閉舊視窗後重開 `start.bat`（會自動清理） |
 
 ## 電腦本機使用
 
@@ -37,11 +88,9 @@
 
 **http://127.0.0.1:8765**
 
-> 若之前用 8080 連不上，請關閉舊的黑色 cmd 視窗後再執行 start.bat。
-
 ### 方法二（免伺服器）
 
-雙擊 **`open.bat`** 直接開啟頁面（多數情況下也可查詢天氣）。
+雙擊 **`open.bat`** 直接開啟頁面（需有 `config.js` 才能載入美食）。
 
 ### 方法三（手動）
 
@@ -52,41 +101,16 @@ python -m http.server 8765 --bind 127.0.0.1
 
 瀏覽 **http://127.0.0.1:8765**
 
-在頂部搜尋列輸入城市後按 **查詢**，例如：台北市、高雄、東京。
-
 ## GitHub Pages 部署
 
 Repo：https://github.com/skytimmy612-dot/weather-dashboard-app
 
-### 推送程式碼
-
 ```bash
 cd D:\weather-dashboard-app
-git remote add origin https://github.com/skytimmy612-dot/weather-dashboard-app.git
-git branch -M main
-git push -u origin main
+git push origin main
 ```
 
-### 啟用 GitHub Pages
-
-1. 進 repo → **Settings** → **Pages**
-2. **Build and deployment** → Source 選 **Deploy from a branch**
-3. Branch 選 `main`，資料夾選 **`/ (root)`**
-4. 儲存後約 1～2 分鐘，網址為：
-
-**https://skytimmy612-dot.github.io/weather-dashboard-app/**
-
-## 同 WiFi 區網測試（替代方案）
-
-若暫時不想用 GitHub Pages，可讓電腦伺服器綁定區網：
-
-```bash
-python -m http.server 8765 --bind 0.0.0.0
-```
-
-手機連**同一個 WiFi**，開 `http://192.168.x.x:8765`（電腦的區網 IP）。
-
-限制：通常是 HTTP 不是 HTTPS，iOS 定位可能受限；長期給 iPhone 用建議 GitHub Pages。
+線上網址：**https://skytimmy612-dot.github.io/weather-dashboard-app/**
 
 ## 檔案
 
@@ -95,8 +119,12 @@ python -m http.server 8765 --bind 0.0.0.0
 | `index.html` | 頁面結構 |
 | `styles.css` | Dashboard UI 樣式 |
 | `app.js` | 天氣查詢與畫面更新邏輯 |
+| `config.example.js` | API Key 設定範例 |
+| `config.js` | 本機 API Key（不提交） |
+| `.github/workflows/pages.yml` | GitHub Pages 自動部署 |
 
 ## API
 
 - [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api)
 - [Open-Meteo Weather](https://open-meteo.com/en/docs)
+- [Google Places API (New)](https://developers.google.com/maps/documentation/places/web-service/overview)

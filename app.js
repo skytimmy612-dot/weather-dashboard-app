@@ -1,6 +1,11 @@
 const GEO_API = "https://geocoding-api.open-meteo.com/v1/search";
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast";
 const REVERSE_GEO_API = "https://api.bigdatacloud.net/data/reverse-geocode-client";
+const PLACES_API = "https://places.googleapis.com/v1/places:searchText";
+
+const MIN_FOOD_RATING = 4.0;
+const MIN_FOOD_RATING_COUNT = 5;
+const FOOD_SEARCH_RADIUS = 1500;
 
 const STORAGE_KEY = "weather-dashboard-city";
 
@@ -33,14 +38,6 @@ const HOURLY_SLOTS = [
   { label: "下午", hour: 15 },
   { label: "傍晚", hour: 18 },
   { label: "晚上", hour: 21 },
-];
-
-const FOOD_POOL = [
-  { name: "巷口麵店", desc: "牛肉麵", icon: "bowl", rating: 4.6 },
-  { name: "輕食沙拉吧", desc: "健康餐盒", icon: "salad", rating: 4.4 },
-  { name: "手沖咖啡館", desc: "飲品甜點", icon: "coffee", rating: 4.8 },
-  { name: "日式定食屋", desc: "定食套餐", icon: "bowl", rating: 4.5 },
-  { name: "港式茶餐廳", desc: "港式點心", icon: "bowl", rating: 4.3 },
 ];
 
 const CITY_ALIASES = {
@@ -145,7 +142,8 @@ const els = {
 };
 
 let foodExpanded = false;
-let foodSeed = 0;
+let foodItems = [];
+let foodLoadToken = 0;
 let displayedFoodItems = [];
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 
@@ -287,6 +285,16 @@ async function fetchWithTimeout(url, ms = 12000) {
   }
 }
 
+async function fetchWithOptions(url, options = {}, ms = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function geocodeCity(name) {
   const variants = citySearchVariants(name);
 
@@ -381,7 +389,7 @@ async function queryByCoords(latitude, longitude) {
     els.weatherIcon.innerHTML = iconSvg("cloud");
     els.hourlyForecast.innerHTML = "";
     renderOutfit(25, 3);
-    renderFoodList();
+    renderFoodList([], false, { message: "無法載入美食推薦" });
   } finally {
     setLoading(false);
   }
@@ -419,6 +427,118 @@ function nearestHourlyIndex(times, targetHour) {
   return best;
 }
 
+function getPlacesApiKey() {
+  const key = window.APP_CONFIG?.GOOGLE_PLACES_API_KEY?.trim();
+  if (!key || key.includes("在此填入")) return "";
+  return key;
+}
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function mapPlaceIcon(primaryType = "") {
+  const type = String(primaryType).toLowerCase();
+  if (type.includes("coffee") || type.includes("cafe")) return "coffee";
+  if (type.includes("salad") || type.includes("vegetarian") || type.includes("health")) {
+    return "salad";
+  }
+  return "bowl";
+}
+
+function formatFoodDistance(meters) {
+  if (meters < 1000) return `${Math.round(meters)} 公尺`;
+  return `${(meters / 1000).toFixed(1)} 公里`;
+}
+
+function normalizePlace(place, originLat, originLng) {
+  const lat = place.location?.latitude ?? originLat;
+  const lng = place.location?.longitude ?? originLng;
+  const desc = place.primaryTypeDisplayName?.text || "餐廳";
+
+  return {
+    name: place.displayName?.text || "未命名餐廳",
+    desc,
+    icon: mapPlaceIcon(place.primaryType || desc),
+    rating: place.rating ?? 0,
+    distanceMeters: haversineDistance(originLat, originLng, lat, lng),
+    mapsUrl: place.googleMapsUri || "",
+  };
+}
+
+async function fetchNearbyFood(latitude, longitude) {
+  const apiKey = getPlacesApiKey();
+  if (!apiKey) throw new Error("NO_API_KEY");
+
+  const res = await fetchWithOptions(PLACES_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask":
+        "places.displayName,places.rating,places.location,places.googleMapsUri,places.primaryTypeDisplayName,places.primaryType,places.userRatingCount",
+    },
+    body: JSON.stringify({
+      textQuery: "restaurant",
+      minRating: MIN_FOOD_RATING,
+      maxResultCount: 10,
+      languageCode: "zh-TW",
+      locationBias: {
+        circle: {
+          center: { latitude, longitude },
+          radius: FOOD_SEARCH_RADIUS,
+        },
+      },
+    }),
+  });
+
+  if (!res.ok) throw new Error("PLACES_API_ERROR");
+
+  const data = await res.json();
+  return (data.places ?? [])
+    .filter(
+      (place) =>
+        (place.rating ?? 0) >= MIN_FOOD_RATING &&
+        (place.userRatingCount ?? 0) >= MIN_FOOD_RATING_COUNT
+    )
+    .map((place) => normalizePlace(place, latitude, longitude))
+    .sort((a, b) => a.distanceMeters - b.distanceMeters);
+}
+
+async function loadFoodPlaces(latitude, longitude) {
+  const token = ++foodLoadToken;
+  foodExpanded = false;
+  renderFoodList([], false, { loading: true });
+
+  try {
+    const items = await fetchNearbyFood(latitude, longitude);
+    if (token !== foodLoadToken) return;
+
+    foodItems = items;
+    if (!items.length) {
+      renderFoodList([], false, { message: "附近暫無 4 顆星以上餐廳" });
+      return;
+    }
+
+    renderFoodList(foodItems, false);
+  } catch (err) {
+    if (token !== foodLoadToken) return;
+    foodItems = [];
+    const message =
+      err.message === "NO_API_KEY"
+        ? "無法載入美食推薦，請設定 config.js 中的 Google Places API Key"
+        : "無法載入美食推薦，請稍後再試";
+    renderFoodList([], false, { message });
+  }
+}
+
 function buildOutfitSuggestions(temp, code) {
   const items = [];
   if (isHot(temp)) items.push({ label: "透氣短袖", icon: "shirt" });
@@ -447,7 +567,8 @@ function renderOutfit(temp, code) {
 }
 
 function buildFoodMapsUrl(item) {
-  const query = `${item.desc} ${currentCity.name}`;
+  if (item.mapsUrl) return item.mapsUrl;
+  const query = `${item.name} ${currentCity.name}`;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
@@ -461,14 +582,33 @@ function handleFoodItemAction(row) {
   if (item) openFoodOnMaps(item);
 }
 
-function renderFoodList(seed = 0, showAll = foodExpanded) {
-  foodSeed = seed;
+function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
   foodExpanded = showAll;
-  const sorted = [...FOOD_POOL].sort(
-    (a, b) => ((a.rating + seed) % 5) - ((b.rating + seed) % 5)
-  );
-  const picks = showAll ? sorted : sorted.slice(0, 3);
+
+  if (state.loading) {
+    displayedFoodItems = [];
+    els.foodList.innerHTML = `<li class="food-status">載入美食推薦中…</li>`;
+    els.viewAllFood.classList.add("hidden");
+    return;
+  }
+
+  if (state.message) {
+    displayedFoodItems = [];
+    els.foodList.innerHTML = `<li class="food-status">${state.message}</li>`;
+    els.viewAllFood.classList.add("hidden");
+    return;
+  }
+
+  const picks = showAll ? items : items.slice(0, 3);
   displayedFoodItems = picks;
+
+  if (!picks.length) {
+    els.foodList.innerHTML = `<li class="food-status">附近暫無 4 顆星以上餐廳</li>`;
+    els.viewAllFood.classList.add("hidden");
+    return;
+  }
+
+  els.viewAllFood.classList.remove("hidden");
   els.foodList.innerHTML = picks
     .map(
       (item, i) => `
@@ -477,12 +617,12 @@ function renderFoodList(seed = 0, showAll = foodExpanded) {
         role="button"
         tabindex="0"
         data-food-index="${i}"
-        aria-label="在 Google Maps 搜尋${item.desc}"
+        aria-label="在 Google Maps 開啟${item.name}"
       >
         ${iconSvg(item.icon)}
         <div>
           <h3>${item.name}</h3>
-          <p>${item.desc} · ${300 + i * 220} 公尺</p>
+          <p>${item.desc} · ${formatFoodDistance(item.distanceMeters)}</p>
         </div>
         <span class="rating">★ ${item.rating.toFixed(1)}</span>
       </li>`
@@ -490,6 +630,7 @@ function renderFoodList(seed = 0, showAll = foodExpanded) {
     .join("");
   els.viewAllFood.textContent = showAll ? "收合" : "查看全部";
   els.viewAllFood.setAttribute("aria-expanded", String(showAll));
+  els.viewAllFood.classList.toggle("hidden", items.length <= 3);
 }
 
 function renderHourly(hourly) {
@@ -532,7 +673,7 @@ function renderWeather(city, weather) {
 
   renderHourly(weather.hourly);
   renderOutfit(temp, code);
-  renderFoodList(temp + code, false);
+  loadFoodPlaces(currentCity.latitude, currentCity.longitude);
 }
 
 async function queryCity(cityName) {
@@ -553,7 +694,7 @@ async function queryCity(cityName) {
     els.weatherIcon.innerHTML = iconSvg("cloud");
     els.hourlyForecast.innerHTML = "";
     renderOutfit(25, 3);
-    renderFoodList();
+    renderFoodList([], false, { message: "無法載入美食推薦" });
   } finally {
     setLoading(false);
   }
@@ -571,7 +712,7 @@ function setActiveNavTab(tab) {
 }
 
 function toggleFoodList() {
-  renderFoodList(foodSeed, !foodExpanded);
+  renderFoodList(foodItems, !foodExpanded);
   if (foodExpanded) {
     setActiveNavTab("food");
     scrollToSection("food");
@@ -616,7 +757,13 @@ async function init() {
   bindEvents();
   setSearchHint(DEFAULT_CITY, false);
   renderOutfit(28, 0);
-  renderFoodList();
+  if (getPlacesApiKey()) {
+    renderFoodList([], false, { loading: true });
+  } else {
+    renderFoodList([], false, {
+      message: "請複製 config.example.js 為 config.js 並填入 Google Places API Key",
+    });
+  }
 
   if (location.protocol === "file:") {
     setError("請用 start.bat 本機啟動，或透過 GitHub Pages 網址開啟");
