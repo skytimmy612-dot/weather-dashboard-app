@@ -10,6 +10,10 @@ const FOOD_SEARCH_RADIUS = 1500;
 const STORAGE_KEY = "weather-dashboard-city";
 const FAVORITES_KEY = "weather-dashboard-favorites";
 const MAX_FAVORITES = 5;
+const MAX_FORECAST_DAYS = 16;
+const MAX_TRIP_DAYS = 16;
+const TRAVEL_DATE_PATTERN =
+  /(\d{1,2})\s*\/\s*(\d{1,2})\s*[-–~到至]\s*(\d{1,2})\s*\/\s*(\d{1,2})/;
 
 const WEATHER_TEXT = {
   0: "晴朗",
@@ -148,6 +152,9 @@ const els = {
   loading: $("loading"),
   error: $("error"),
   viewAllFood: $("viewAllFood"),
+  travelSummary: $("travelSummary"),
+  travelDays: $("travelDays"),
+  travelTitle: $("travelTitle"),
   locateBtn: $("locateBtn"),
   navBtns: document.querySelectorAll(".nav-btn"),
   cards: {
@@ -161,6 +168,7 @@ let foodExpanded = false;
 let foodItems = [];
 let foodLoadToken = 0;
 let displayedFoodItems = [];
+let travelFoodItems = [];
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 
 function setLoading(on) {
@@ -499,7 +507,7 @@ async function geocodeCity(name) {
   );
 }
 
-async function fetchWeather(latitude, longitude) {
+async function fetchWeather(latitude, longitude, days = 5) {
   const url = new URL(WEATHER_API);
   url.searchParams.set("latitude", latitude);
   url.searchParams.set("longitude", longitude);
@@ -513,11 +521,269 @@ async function fetchWeather(latitude, longitude) {
     "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max"
   );
   url.searchParams.set("timezone", "auto");
-  url.searchParams.set("forecast_days", "5");
+  url.searchParams.set("forecast_days", String(Math.min(MAX_FORECAST_DAYS, Math.max(1, days))));
 
   const res = await fetchWithTimeout(url.toString());
   if (!res.ok) throw new Error("天氣服務暫時無法使用");
   return res.json();
+}
+
+function parseTravelQuery(input) {
+  const trimmed = input.trim();
+  const match = trimmed.match(TRAVEL_DATE_PATTERN);
+  if (!match) return null;
+
+  const city = trimmed.replace(match[0], "").trim();
+  if (!city) return null;
+
+  const startDate = resolveTripDate(Number(match[1]), Number(match[2]));
+  const endDate = resolveTripDate(Number(match[3]), Number(match[4]), startDate);
+  if (endDate < startDate) return null;
+
+  return { city, startDate, endDate, rawInput: trimmed };
+}
+
+function resolveTripDate(month, day, referenceDate = null) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+
+  if (referenceDate) {
+    const date = new Date(referenceDate.getFullYear(), month - 1, day, 12, 0, 0, 0);
+    if (date < referenceDate) {
+      date.setFullYear(referenceDate.getFullYear() + 1);
+    }
+    return date;
+  }
+
+  let year = now.getFullYear();
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+  if (date < today) {
+    date.setFullYear(year + 1);
+  }
+  return date;
+}
+
+function buildTripDates(startDate, endDate) {
+  const dates = [];
+  const current = new Date(startDate);
+  while (current <= endDate && dates.length < MAX_TRIP_DAYS) {
+    dates.push(new Date(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+
+function calcForecastDays(endDate) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+  const daysFromToday = Math.floor((end.getTime() - today.getTime()) / 86400000) + 1;
+  return Math.min(MAX_FORECAST_DAYS, Math.max(5, daysFromToday));
+}
+
+function dateToKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function formatTripDateLabel(date) {
+  const md = `${date.getMonth() + 1}/${date.getDate()}`;
+  const weekday = date.toLocaleDateString("zh-TW", { weekday: "short" });
+  return `${md} (${weekday})`;
+}
+
+function buildDailyWeatherMap(daily) {
+  const map = new Map();
+  if (!daily?.time?.length) return map;
+
+  daily.time.forEach((dateStr, index) => {
+    map.set(dateStr, {
+      code: daily.weather_code[index],
+      max: daily.temperature_2m_max[index],
+      min: daily.temperature_2m_min[index],
+      precipMax: daily.precipitation_probability_max?.[index] ?? 0,
+    });
+  });
+  return map;
+}
+
+function buildTravelOutfitSuggestions(maxTemp, minTemp, code) {
+  const items = [...buildOutfitSuggestions(maxTemp, code)];
+  if (isCold(minTemp) && !items.some((item) => item.label === "保暖外套")) {
+    items.unshift({ label: "保暖外套", icon: "jacket" });
+  }
+  return items.slice(0, 3);
+}
+
+function clearTravelSummary() {
+  if (!els.travelSummary) return;
+  els.travelSummary.classList.add("hidden");
+  if (els.travelDays) els.travelDays.innerHTML = "";
+  travelFoodItems = [];
+}
+
+function renderTravelSummary(cityName, tripDays, foodError = "") {
+  if (!els.travelSummary || !els.travelDays) return;
+
+  travelFoodItems = [];
+  if (els.travelTitle) {
+    els.travelTitle.textContent = `行程摘要 · ${cityName}`;
+  }
+
+  els.travelDays.innerHTML = tripDays
+    .map((day, index) => {
+      if (day.outOfRange) {
+        return `
+        <article class="travel-day travel-day-muted">
+          <h3 class="travel-day-title">${day.dateLabel}</h3>
+          <p class="travel-day-note">超出預報範圍（僅提供近 ${MAX_FORECAST_DAYS} 天）</p>
+        </article>`;
+      }
+
+      const rainNote =
+        day.precipMax >= 50 || isRainy(day.code)
+          ? `<span class="travel-rain-note">建議攜帶雨具</span>`
+          : "";
+
+      const outfitHtml = day.outfit
+        .map((item) => `<span class="travel-outfit-tag">${item.label}</span>`)
+        .join("");
+
+      let foodHtml = "";
+      if (day.restaurant) {
+        travelFoodItems.push(day.restaurant);
+        const foodIndex = travelFoodItems.length - 1;
+        foodHtml = `
+          <button
+            type="button"
+            class="travel-food-btn"
+            data-travel-food-index="${foodIndex}"
+            aria-label="在 Google Maps 開啟${day.restaurant.name}"
+          >
+            <span class="travel-food-name">${day.restaurant.name}</span>
+            <span class="travel-food-meta">★ ${day.restaurant.rating.toFixed(1)} · ${day.restaurant.desc}</span>
+          </button>`;
+      } else if (foodError) {
+        foodHtml = `<p class="travel-day-note">${foodError}</p>`;
+      } else {
+        foodHtml = `<p class="travel-day-note">附近暫無 4 顆星以上餐廳</p>`;
+      }
+
+      return `
+      <article class="travel-day">
+        <h3 class="travel-day-title">${day.dateLabel}</h3>
+        <div class="travel-row travel-row-weather">
+          <div class="travel-weather-icon">${iconSvg("mini", day.code)}</div>
+          <div>
+            <p class="travel-weather-main">${day.label} · ${day.maxTemp}° / ${day.minTemp}°</p>
+            ${rainNote}
+          </div>
+        </div>
+        <div class="travel-row">
+          <span class="travel-row-label">穿搭</span>
+          <div class="travel-outfit-tags">${outfitHtml}</div>
+        </div>
+        <div class="travel-row">
+          <span class="travel-row-label">美食</span>
+          <div class="travel-food-wrap">${foodHtml}</div>
+        </div>
+      </article>`;
+    })
+    .join("");
+
+  els.travelSummary.classList.remove("hidden");
+  els.travelSummary.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function enterTravelMode(parsed) {
+  const { city, startDate, endDate, rawInput } = parsed;
+  setError("");
+  setLoading(true);
+
+  try {
+    const geoCity = await geocodeCity(city);
+    const tripDates = buildTripDates(startDate, endDate);
+    const forecastDays = calcForecastDays(endDate);
+
+    const [weatherResult, foodResult] = await Promise.allSettled([
+      fetchWeather(geoCity.latitude, geoCity.longitude, forecastDays),
+      fetchNearbyFood(geoCity.latitude, geoCity.longitude),
+    ]);
+
+    if (weatherResult.status === "rejected") {
+      throw weatherResult.reason;
+    }
+
+    const weather = weatherResult.value;
+    let restaurants = [];
+    let foodError = "";
+
+    if (foodResult.status === "fulfilled") {
+      restaurants = foodResult.value;
+    } else if (foodResult.reason?.message === "NO_API_KEY") {
+      foodError = "請設定 Google Places API Key 以顯示美食推薦";
+    } else {
+      foodError = "無法載入美食推薦";
+    }
+
+    renderWeather(geoCity, weather);
+
+    const dailyMap = buildDailyWeatherMap(weather.daily);
+    const tripDays = tripDates.map((date, index) => {
+      const key = dateToKey(date);
+      const wx = dailyMap.get(key);
+
+      if (!wx) {
+        return {
+          date,
+          dateLabel: formatTripDateLabel(date),
+          outOfRange: true,
+        };
+      }
+
+      const maxTemp = Math.round(wx.max);
+      const minTemp = Math.round(wx.min);
+      return {
+        date,
+        dateLabel: formatTripDateLabel(date),
+        outOfRange: false,
+        code: wx.code,
+        maxTemp,
+        minTemp,
+        precipMax: Math.round(wx.precipMax),
+        label: weatherLabel(wx.code),
+        outfit: buildTravelOutfitSuggestions(maxTemp, minTemp, wx.code),
+        restaurant: restaurants.length ? restaurants[index % restaurants.length] : null,
+      };
+    });
+
+    renderTravelSummary(geoCity.name, tripDays, foodError);
+
+    const startMd = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
+    const endMd = `${endDate.getMonth() + 1}/${endDate.getDate()}`;
+    els.searchHint.textContent = `旅遊行程：${geoCity.name}（${startMd}–${endMd}）`;
+    els.cityInput.value = rawInput;
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        name: geoCity.name,
+        latitude: geoCity.latitude,
+        longitude: geoCity.longitude,
+      })
+    );
+  } catch (err) {
+    setError(err.message || "查詢失敗，請稍後再試");
+    clearWeatherOnError();
+    clearTravelSummary();
+    renderOutfit(25, 3);
+    renderFoodList([], false, { message: "無法載入美食推薦" });
+  } finally {
+    setLoading(false);
+  }
 }
 
 async function reverseGeocode(latitude, longitude) {
@@ -553,6 +819,7 @@ function geolocationErrorMessage(error) {
 async function queryByCoords(latitude, longitude) {
   setError("");
   setLoading(true);
+  clearTravelSummary();
   try {
     const [weather, placeName] = await Promise.all([
       fetchWeather(latitude, longitude),
@@ -574,6 +841,7 @@ async function queryByCoords(latitude, longitude) {
 async function querySavedCity(city) {
   setError("");
   setLoading(true);
+  clearTravelSummary();
   try {
     const weather = await fetchWeather(city.latitude, city.longitude);
     renderWeather(city, weather);
@@ -902,6 +1170,7 @@ function renderWeather(city, weather) {
 async function queryCity(cityName) {
   setError("");
   setLoading(true);
+  clearTravelSummary();
   try {
     const city = await geocodeCity(cityName);
     const weather = await fetchWeather(city.latitude, city.longitude);
@@ -942,9 +1211,17 @@ function toggleFoodList() {
 function bindEvents() {
   els.searchForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const city = els.cityInput.value.trim();
-    if (!city) return;
-    queryCity(city);
+    const input = els.cityInput.value.trim();
+    if (!input) return;
+
+    const travelQuery = parseTravelQuery(input);
+    if (travelQuery) {
+      enterTravelMode(travelQuery);
+      return;
+    }
+
+    clearTravelSummary();
+    queryCity(input);
   });
 
   els.viewAllFood.addEventListener("click", toggleFoodList);
@@ -981,6 +1258,15 @@ function bindEvents() {
     e.preventDefault();
     handleFoodItemAction(row);
   });
+
+  if (els.travelDays) {
+    els.travelDays.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-travel-food-index]");
+      if (!row) return;
+      const item = travelFoodItems[Number(row.dataset.travelFoodIndex)];
+      if (item) openFoodOnMaps(item);
+    });
+  }
 
   els.navBtns.forEach((btn) => {
     btn.addEventListener("click", () => {

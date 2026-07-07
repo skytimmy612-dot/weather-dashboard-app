@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>天氣查詢</title>
-  <link rel="stylesheet" href="styles.css?v=20260707" />
+  <link rel="stylesheet" href="styles.css?v=20260708" />
 </head>
 <body>
   <div class="phone">
@@ -19,7 +19,7 @@
             id="cityInput"
             name="city"
             value="台北市"
-            placeholder="輸入城市名稱"
+            placeholder="輸入城市或 7/10-7/15 沖繩"
             autocomplete="off"
             aria-label="城市名稱"
           />
@@ -78,6 +78,11 @@
         </div>
         <ul class="food-list" id="foodList"></ul>
       </section>
+
+      <section class="card card-travel hidden" id="travelSummary" aria-labelledby="travelTitle">
+        <h2 class="card-title" id="travelTitle">行程摘要</h2>
+        <div class="travel-days" id="travelDays"></div>
+      </section>
     </main>
 
     <nav class="bottom-nav" aria-label="主要導覽">
@@ -102,6 +107,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260707" defer></script>
+  <script src="app.js?v=20260708" defer></script>
 </body>
 </html>
