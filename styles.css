@@ -298,6 +298,22 @@ body {
   grid-template-columns: auto 1fr auto;
   gap: 0.875rem;
   align-items: center;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.food-item:hover {
+  background: #fafafa;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.food-item:active {
+  background: #f0f0f0;
+}
+
+.food-item:focus-visible {
+  outline: 2px solid var(--brown);
+  outline-offset: 2px;
 }
 
 .food-item svg {

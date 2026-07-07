@@ -142,6 +142,11 @@ const els = {
   },
 };
 
+let foodExpanded = false;
+let foodSeed = 0;
+let displayedFoodItems = [];
+let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
+
 function setLoading(on) {
   els.loading.classList.toggle("hidden", !on);
 }
@@ -367,12 +372,39 @@ function renderOutfit(temp, code) {
     .join("");
 }
 
-function renderFoodList(seed = 0) {
-  const picks = [...FOOD_POOL].sort((a, b) => ((a.rating + seed) % 5) - ((b.rating + seed) % 5)).slice(0, 3);
+function buildFoodMapsUrl(item) {
+  const query = `${item.desc} ${currentCity.name}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function openFoodOnMaps(item) {
+  window.open(buildFoodMapsUrl(item), "_blank", "noopener,noreferrer");
+}
+
+function handleFoodItemAction(row) {
+  const index = Number(row.dataset.foodIndex);
+  const item = displayedFoodItems[index];
+  if (item) openFoodOnMaps(item);
+}
+
+function renderFoodList(seed = 0, showAll = foodExpanded) {
+  foodSeed = seed;
+  foodExpanded = showAll;
+  const sorted = [...FOOD_POOL].sort(
+    (a, b) => ((a.rating + seed) % 5) - ((b.rating + seed) % 5)
+  );
+  const picks = showAll ? sorted : sorted.slice(0, 3);
+  displayedFoodItems = picks;
   els.foodList.innerHTML = picks
     .map(
       (item, i) => `
-      <li class="food-item">
+      <li
+        class="food-item"
+        role="button"
+        tabindex="0"
+        data-food-index="${i}"
+        aria-label="在 Google Maps 搜尋${item.desc}"
+      >
         ${iconSvg(item.icon)}
         <div>
           <h3>${item.name}</h3>
@@ -382,6 +414,8 @@ function renderFoodList(seed = 0) {
       </li>`
     )
     .join("");
+  els.viewAllFood.textContent = showAll ? "收合" : "查看全部";
+  els.viewAllFood.setAttribute("aria-expanded", String(showAll));
 }
 
 function renderHourly(hourly) {
@@ -404,6 +438,12 @@ function setSearchHint(cityName, isLive = true) {
 }
 
 function renderWeather(city, weather) {
+  currentCity = {
+    name: city.name,
+    latitude: city.latitude ?? currentCity.latitude,
+    longitude: city.longitude ?? currentCity.longitude,
+  };
+
   const current = weather.current;
   const temp = Math.round(current.temperature_2m);
   const humidity = current.relative_humidity_2m;
@@ -418,7 +458,7 @@ function renderWeather(city, weather) {
 
   renderHourly(weather.hourly);
   renderOutfit(temp, code);
-  renderFoodList(temp + code);
+  renderFoodList(temp + code, false);
 }
 
 async function queryCity(cityName) {
@@ -450,6 +490,20 @@ function scrollToSection(tab) {
   if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function setActiveNavTab(tab) {
+  els.navBtns.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+}
+
+function toggleFoodList() {
+  renderFoodList(foodSeed, !foodExpanded);
+  if (foodExpanded) {
+    setActiveNavTab("food");
+    scrollToSection("food");
+  }
+}
+
 function bindEvents() {
   els.searchForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -458,12 +512,25 @@ function bindEvents() {
     queryCity(city);
   });
 
-  els.viewAllFood.addEventListener("click", () => scrollToSection("food"));
+  els.viewAllFood.addEventListener("click", toggleFoodList);
+
+  els.foodList.addEventListener("click", (e) => {
+    const row = e.target.closest(".food-item");
+    if (!row) return;
+    handleFoodItemAction(row);
+  });
+
+  els.foodList.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const row = e.target.closest(".food-item");
+    if (!row) return;
+    e.preventDefault();
+    handleFoodItemAction(row);
+  });
 
   els.navBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
-      els.navBtns.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
+      setActiveNavTab(btn.dataset.tab);
       scrollToSection(btn.dataset.tab);
     });
   });
@@ -483,9 +550,10 @@ async function init() {
   if (saved) {
     try {
       const { name, latitude, longitude } = JSON.parse(saved);
+      currentCity = { name, latitude, longitude };
       setLoading(true);
       const weather = await fetchWeather(latitude, longitude);
-      renderWeather({ name }, weather);
+      renderWeather({ name, latitude, longitude }, weather);
       setError("");
       return;
     } catch {
