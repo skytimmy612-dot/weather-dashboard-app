@@ -13,7 +13,7 @@ const MAX_FAVORITES = 5;
 const MAX_FORECAST_DAYS = 16;
 const MAX_TRIP_DAYS = 16;
 const TRAVEL_DATE_PATTERN =
-  /(\d{1,2})\s*\/\s*(\d{1,2})\s*[-–~到至]\s*(\d{1,2})\s*\/\s*(\d{1,2})/;
+  /(\d{1,2})\s*[\/／]\s*(\d{1,2})\s*[-–—〜～~－至到]\s*(\d{1,2})\s*[\/／]\s*(\d{1,2})/;
 
 const WEATHER_TEXT = {
   0: "晴朗",
@@ -529,11 +529,17 @@ async function fetchWeather(latitude, longitude, days = 5) {
 }
 
 function parseTravelQuery(input) {
-  const trimmed = input.trim();
+  const trimmed = input.trim().normalize("NFKC");
   const match = trimmed.match(TRAVEL_DATE_PATTERN);
   if (!match) return null;
 
-  const city = trimmed.replace(match[0], "").trim();
+  let city = trimmed.replace(match[0], "").replace(/\s+/g, " ").trim();
+  if (!city) {
+    const idx = trimmed.indexOf(match[0]);
+    if (idx > 0) {
+      city = trimmed.slice(0, idx).replace(/\s+/g, " ").trim();
+    }
+  }
   if (!city) return null;
 
   const startDate = resolveTripDate(Number(match[1]), Number(match[2]));
@@ -1168,6 +1174,11 @@ function renderWeather(city, weather) {
 }
 
 async function queryCity(cityName) {
+  const travelQuery = parseTravelQuery(cityName);
+  if (travelQuery) {
+    return enterTravelMode(travelQuery);
+  }
+
   setError("");
   setLoading(true);
   clearTravelSummary();
