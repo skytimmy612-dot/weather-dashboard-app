@@ -64,6 +64,51 @@ const CITY_ALIASES = {
   連江: "連江縣",
 };
 
+// 中文地名在 Open-Meteo 常查不到，對應英文搜尋詞
+const PLACE_ALIASES = {
+  冰島: "Iceland",
+  首爾: "Seoul",
+  韓國: "South Korea",
+  日本: "Japan",
+  美國: "United States",
+  英國: "United Kingdom",
+  法國: "France",
+  德國: "Germany",
+  澳洲: "Australia",
+  澳大利亞: "Australia",
+  紐西蘭: "New Zealand",
+  泰國: "Thailand",
+  越南: "Vietnam",
+  印尼: "Indonesia",
+  印度: "India",
+  馬來西亞: "Malaysia",
+  新加坡: "Singapore",
+  菲律賓: "Philippines",
+  加拿大: "Canada",
+  河內: "Hanoi",
+  胡志明: "Ho Chi Minh City",
+  胡志明市: "Ho Chi Minh City",
+  杜拜: "Dubai",
+  雪梨: "Sydney",
+  墨爾本: "Melbourne",
+  巴黎: "Paris",
+  倫敦: "London",
+  紐約: "New York",
+  洛杉磯: "Los Angeles",
+  舊金山: "San Francisco",
+  西雅圖: "Seattle",
+  芝加哥: "Chicago",
+  夏威夷: "Honolulu",
+  溫哥華: "Vancouver",
+  多倫多: "Toronto",
+  莫斯科: "Moscow",
+  柏林: "Berlin",
+  羅馬: "Rome",
+  馬德里: "Madrid",
+  阿姆斯特丹: "Amsterdam",
+  雷克雅維克: "Reykjavik",
+};
+
 const DEFAULT_CITY = "台北市";
 
 const FALLBACK_CITIES = {
@@ -166,30 +211,56 @@ function hourIsNight(hour) {
   return hour >= 19 || hour < 6;
 }
 
+function isTaiwanCityName(name) {
+  if (CITY_ALIASES[name] || FALLBACK_CITIES[name]) return true;
+  if (/[市縣]$/.test(name)) return true;
+  return Object.values(CITY_ALIASES).includes(name);
+}
+
 function citySearchVariants(name) {
   const trimmed = name.trim();
   const variants = new Set();
 
   if (trimmed) variants.add(trimmed);
   if (CITY_ALIASES[trimmed]) variants.add(CITY_ALIASES[trimmed]);
+  if (PLACE_ALIASES[trimmed]) variants.add(PLACE_ALIASES[trimmed]);
 
-  if (!/[市縣]$/.test(trimmed)) {
-    variants.add(`${trimmed}市`);
-    variants.add(`${trimmed}縣`);
-  }
-
-  if (/[市縣]$/.test(trimmed)) {
-    variants.add(trimmed.slice(0, -1));
+  if (isTaiwanCityName(trimmed)) {
+    if (!/[市縣]$/.test(trimmed)) {
+      variants.add(`${trimmed}市`);
+      variants.add(`${trimmed}縣`);
+    } else {
+      variants.add(trimmed.slice(0, -1));
+    }
   }
 
   return [...variants];
 }
 
-async function geocodeByName(name) {
+function pickBestResult(results, query) {
+  const exact = results.find((item) => item.name === query);
+  if (exact) return exact;
+
+  const preferred = results.filter((item) =>
+    ["PPLC", "PPL", "PPLA", "PPLA2", "PCLI", "ADM1"].includes(item.feature_code)
+  );
+  const pool = preferred.length ? preferred : results;
+  return [...pool].sort((a, b) => (b.population ?? 0) - (a.population ?? 0))[0];
+}
+
+function resolveDisplayName(userInput, result, matchedVariant) {
+  const trimmed = userInput.trim();
+  if (PLACE_ALIASES[trimmed] && matchedVariant === PLACE_ALIASES[trimmed]) {
+    return trimmed;
+  }
+  return result.name || trimmed;
+}
+
+async function geocodeByName(name, language = "zh") {
   const url = new URL(GEO_API);
   url.searchParams.set("name", name);
   url.searchParams.set("count", "5");
-  url.searchParams.set("language", "zh");
+  url.searchParams.set("language", language);
   url.searchParams.set("format", "json");
 
   const res = await fetchWithTimeout(url.toString());
@@ -212,14 +283,19 @@ async function geocodeCity(name) {
   const variants = citySearchVariants(name);
 
   for (const variant of variants) {
-    try {
-      const results = await geocodeByName(variant);
-      if (results.length) {
-        const exact = results.find((item) => item.name === variant);
-        return exact ?? results[0];
+    for (const language of ["zh", "en"]) {
+      try {
+        const results = await geocodeByName(variant, language);
+        if (results.length) {
+          const best = pickBestResult(results, variant);
+          return {
+            ...best,
+            name: resolveDisplayName(name, best, variant),
+          };
+        }
+      } catch {
+        // try next language or variant
       }
-    } catch {
-      // try next variant or fallback below
     }
   }
 
@@ -227,7 +303,9 @@ async function geocodeCity(name) {
     if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
   }
 
-  throw new Error(`找不到城市「${name}」，請試試「台北市」或輸入英文如 Taipei`);
+  throw new Error(
+    `找不到「${name}」。台灣城市可試「台北市」；國外地點可輸入英文如 Tokyo、Iceland`
+  );
 }
 
 async function fetchWeather(latitude, longitude) {
