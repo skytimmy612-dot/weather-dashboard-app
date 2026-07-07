@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>天氣查詢</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="phone">
+    <main class="app" id="app">
+      <section class="search-section" aria-label="城市查詢">
+        <form class="city-search" id="searchForm">
+          <span class="pin-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 21s7-4.6 7-11a7 7 0 1 0-14 0c0 6.4 7 11 7 11z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          </span>
+          <input
+            type="search"
+            id="cityInput"
+            name="city"
+            value="台北市"
+            placeholder="輸入城市名稱"
+            autocomplete="off"
+            aria-label="城市名稱"
+          />
+          <button type="submit" class="search-btn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            查詢
+          </button>
+        </form>
+        <p class="search-hint" id="searchHint">目前顯示：台北市（按查詢取得即時天氣資訊）</p>
+      </section>
+
+      <div class="loading hidden" id="loading">查詢天氣中…</div>
+      <div class="error hidden" id="error"></div>
+
+      <section class="card card-weather" aria-labelledby="weatherTitle">
+        <div class="weather-main">
+          <div>
+            <p class="temp" id="currentTemp">--°C</p>
+            <p class="weather-desc" id="weatherDesc">載入中…</p>
+          </div>
+          <div class="weather-icon" id="weatherIcon" aria-hidden="true"></div>
+        </div>
+        <div class="hourly" id="hourlyForecast"></div>
+      </section>
+
+      <section class="card card-outfit" aria-labelledby="outfitTitle">
+        <h2 class="card-title" id="outfitTitle">
+          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 3v2h-2v12H6V8H4V6l4-3 4 3 4-3z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          今日穿搭建議
+        </h2>
+        <div class="outfit-grid" id="outfitGrid"></div>
+      </section>
+
+      <section class="card card-food" aria-labelledby="foodTitle">
+        <div class="food-header">
+          <h2 class="card-title" id="foodTitle">
+            <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v8M10 3v8M6 7h4M14 3v5c0 2 2 3 2 5v9M18 3v5c0 2-2 3-2 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            附近美食推薦
+          </h2>
+          <button class="link-btn" type="button" id="viewAllFood">查看全部</button>
+        </div>
+        <ul class="food-list" id="foodList"></ul>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="主要導覽">
+      <button class="nav-btn active" type="button" data-tab="weather">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a5 5 0 1 1 8.7-3.4A4 4 0 1 1 16 18H7z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        天氣
+      </button>
+      <button class="nav-btn" type="button" data-tab="outfit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 3v2h-2v12H6V8H4V6l4-3 4 3 4-3z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        穿搭
+      </button>
+      <button class="nav-btn" type="button" data-tab="food">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v8M10 3v8M6 7h4M14 3v5c0 2 2 3 2 5v9M18 3v5c0 2-2 3-2 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        美食
+      </button>
+    </nav>
+
+    <div class="home-indicator" aria-hidden="true"></div>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
