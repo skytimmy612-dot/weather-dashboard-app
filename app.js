@@ -105,6 +105,15 @@ const PLACE_ALIASES = {
   馬德里: "Madrid",
   阿姆斯特丹: "Amsterdam",
   雷克雅維克: "Reykjavik",
+  沖縄: "Okinawa",
+  沖繩: "Okinawa",
+  冲绳: "Okinawa",
+  北海道: "Hokkaido",
+  京都: "Kyoto",
+  大阪: "Osaka",
+  福岡: "Fukuoka",
+  名古屋: "Nagoya",
+  札幌: "Sapporo",
 };
 
 const DEFAULT_CITY = "台北市";
