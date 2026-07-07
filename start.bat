@@ -22,8 +22,8 @@ if errorlevel 1 (
 
 if not exist "config.js" (
   echo [提示] 尚未建立 config.js
-  echo        請執行: copy config.example.js config.js
-  echo        並填入 Google Places API Key
+  echo        請手動建立 config.js 並填入 Google Places API Key
+  echo        格式見 README.md
   echo.
 )
 

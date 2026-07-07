@@ -761,7 +761,7 @@ async function init() {
     renderFoodList([], false, { loading: true });
   } else {
     renderFoodList([], false, {
-      message: "請複製 config.example.js 為 config.js 並填入 Google Places API Key",
+      message: "請手動建立 config.js 並填入 Google Places API Key",
     });
   }
 

@@ -33,11 +33,7 @@
 
 ### 本機開發
 
-```bash
-copy config.example.js config.js
-```
-
-編輯 `config.js`，填入你的 API Key：
+在專案根目錄**手動建立** `config.js`（此檔不會提交到 GitHub）：
 
 ```javascript
 window.APP_CONFIG = {
@@ -75,7 +71,7 @@ http://localhost:8765/*
 | 錯誤 | 原因 | 解法 |
 |------|------|------|
 | `ERR_EMPTY_RESPONSE` | 網址少了埠號，或伺服器未啟動 | 用 `http://127.0.0.1:8765/`，雙擊 `start.bat` |
-| 美食無法載入 | 沒有 `config.js` | `copy config.example.js config.js` 並填入 Key |
+| 美食無法載入 | 沒有 `config.js` | 手動建立 `config.js` 並填入 Key |
 | 埠號被占用 | 舊的 cmd 視窗還在跑 | 關閉舊視窗後重開 `start.bat`（會自動清理） |
 
 ## 電腦本機使用
@@ -119,8 +115,7 @@ git push origin main
 | `index.html` | 頁面結構 |
 | `styles.css` | Dashboard UI 樣式 |
 | `app.js` | 天氣查詢與畫面更新邏輯 |
-| `config.example.js` | API Key 設定範例 |
-| `config.js` | 本機 API Key（不提交） |
+| `config.js` | 本機 API Key（手動建立，不提交） |
 | `.github/workflows/pages.yml` | GitHub Pages 自動部署 |
 
 ## API
