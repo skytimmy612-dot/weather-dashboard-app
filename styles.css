@@ -63,15 +63,43 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-.pin-icon {
+.pin-btn {
   display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-light);
   flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0.35rem;
+  margin: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
-.pin-icon svg {
+.pin-btn svg {
   width: 1.25rem;
   height: 1.25rem;
+}
+
+.pin-btn:hover {
+  color: var(--text);
+  background: #f0f0f0;
+}
+
+.pin-btn:active {
+  background: #e6e6e6;
+}
+
+.pin-btn:focus-visible {
+  outline: 2px solid var(--brown);
+  outline-offset: 2px;
+}
+
+.pin-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .city-search input {

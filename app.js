@@ -1,5 +1,6 @@
 const GEO_API = "https://geocoding-api.open-meteo.com/v1/search";
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast";
+const REVERSE_GEO_API = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 
 const STORAGE_KEY = "weather-dashboard-city";
 
@@ -134,6 +135,7 @@ const els = {
   loading: $("loading"),
   error: $("error"),
   viewAllFood: $("viewAllFood"),
+  locateBtn: $("locateBtn"),
   navBtns: document.querySelectorAll(".nav-btn"),
   cards: {
     weather: document.querySelector(".card-weather"),
@@ -149,6 +151,7 @@ let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 
 function setLoading(on) {
   els.loading.classList.toggle("hidden", !on);
+  if (els.locateBtn) els.locateBtn.disabled = on;
 }
 
 function setError(message = "") {
@@ -328,6 +331,77 @@ async function fetchWeather(latitude, longitude) {
   const res = await fetchWithTimeout(url.toString());
   if (!res.ok) throw new Error("天氣服務暫時無法使用");
   return res.json();
+}
+
+async function reverseGeocode(latitude, longitude) {
+  const url = new URL(REVERSE_GEO_API);
+  url.searchParams.set("latitude", String(latitude));
+  url.searchParams.set("longitude", String(longitude));
+  url.searchParams.set("localityLanguage", "zh");
+
+  try {
+    const res = await fetchWithTimeout(url.toString());
+    if (!res.ok) return null;
+    const data = await res.json();
+    const parts = [];
+    if (data.locality) parts.push(data.locality);
+    if (data.city && data.city !== data.locality) parts.push(data.city);
+    if (!parts.length && data.countryName) parts.push(data.countryName);
+    return parts.length ? parts.join(", ") : null;
+  } catch {
+    return null;
+  }
+}
+
+function geolocationErrorMessage(error) {
+  if (error.code === error.PERMISSION_DENIED) {
+    return "請允許瀏覽器存取位置，或手動輸入城市";
+  }
+  if (error.code === error.TIMEOUT) {
+    return "無法取得位置，請稍後再試";
+  }
+  return "無法取得位置，請稍後再試";
+}
+
+async function queryByCoords(latitude, longitude) {
+  setError("");
+  setLoading(true);
+  try {
+    const [weather, placeName] = await Promise.all([
+      fetchWeather(latitude, longitude),
+      reverseGeocode(latitude, longitude),
+    ]);
+    const city = { name: placeName ?? "我的位置", latitude, longitude };
+    renderWeather(city, weather);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(city));
+  } catch (err) {
+    setError(err.message || "查詢失敗，請稍後再試");
+    els.weatherDesc.textContent = "查詢失敗，請重新搜尋";
+    els.currentTemp.textContent = "--°C";
+    els.weatherIcon.innerHTML = iconSvg("cloud");
+    els.hourlyForecast.innerHTML = "";
+    renderOutfit(25, 3);
+    renderFoodList();
+  } finally {
+    setLoading(false);
+  }
+}
+
+function queryCurrentLocation() {
+  if (!navigator.geolocation) {
+    setError("此瀏覽器不支援定位功能");
+    return;
+  }
+  setError("");
+  setLoading(true);
+  navigator.geolocation.getCurrentPosition(
+    (pos) => queryByCoords(pos.coords.latitude, pos.coords.longitude),
+    (err) => {
+      setLoading(false);
+      setError(geolocationErrorMessage(err));
+    },
+    { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 }
+  );
 }
 
 function nearestHourlyIndex(times, targetHour) {
@@ -514,6 +588,8 @@ function bindEvents() {
 
   els.viewAllFood.addEventListener("click", toggleFoodList);
 
+  els.locateBtn.addEventListener("click", queryCurrentLocation);
+
   els.foodList.addEventListener("click", (e) => {
     const row = e.target.closest(".food-item");
     if (!row) return;
@@ -543,7 +619,7 @@ async function init() {
   renderFoodList();
 
   if (location.protocol === "file:") {
-    setError("請用 start.bat 啟動，或瀏覽 http://127.0.0.1:8765");
+    setError("請用 start.bat 本機啟動，或透過 GitHub Pages 網址開啟");
   }
 
   const saved = localStorage.getItem(STORAGE_KEY);
