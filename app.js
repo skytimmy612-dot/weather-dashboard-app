@@ -141,8 +141,10 @@ const els = {
   currentTemp: $("currentTemp"),
   weatherDesc: $("weatherDesc"),
   weatherExtras: $("weatherExtras"),
+  weatherSun: $("weatherSun"),
   weatherIcon: $("weatherIcon"),
   weatherFx: $("weatherFx"),
+  shareBtn: $("shareBtn"),
   rainAlert: $("rainAlert"),
   favoriteBtn: $("favoriteBtn"),
   favoriteChips: $("favoriteChips"),
@@ -414,10 +416,63 @@ function renderWeatherExtras(current) {
   els.weatherExtras.textContent = `體感 ${feels}°C · 風速 ${wind} km/h · UV ${uv}（${uvLevelLabel(uv)}）`;
 }
 
+function formatClockTime(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function renderSun(daily) {
+  if (!els.weatherSun) return;
+  const sunrise = formatClockTime(daily?.sunrise?.[0]);
+  const sunset = formatClockTime(daily?.sunset?.[0]);
+  if (!sunrise || !sunset) {
+    els.weatherSun.textContent = "";
+    return;
+  }
+  els.weatherSun.textContent = `日出 ${sunrise} · 日落 ${sunset}`;
+}
+
+function buildShareText() {
+  const parts = [];
+  parts.push(`${currentCity.name} ${els.currentTemp.textContent}`);
+  if (els.weatherDesc.textContent) parts.push(els.weatherDesc.textContent);
+  if (els.weatherExtras.textContent) parts.push(els.weatherExtras.textContent);
+  if (els.weatherSun.textContent) parts.push(els.weatherSun.textContent);
+  return parts.join("\n");
+}
+
+async function shareWeather() {
+  const text = buildShareText();
+  const shareData = { title: "天氣查詢", text, url: location.href };
+
+  if (navigator.share) {
+    try {
+      await navigator.share(shareData);
+    } catch {
+      // 使用者取消分享，忽略
+    }
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(`${text}\n${location.href}`);
+    setError("已複製天氣資訊到剪貼簿");
+    setTimeout(() => setError(""), 2500);
+  } catch {
+    setError("此裝置不支援分享功能");
+    setTimeout(() => setError(""), 2500);
+  }
+}
+
 function clearWeatherOnError() {
   els.weatherDesc.textContent = "查詢失敗，請重新搜尋";
   els.currentTemp.textContent = "--°C";
   els.weatherExtras.textContent = "";
+  if (els.weatherSun) els.weatherSun.textContent = "";
   els.weatherIcon.innerHTML = iconSvg("cloud");
   els.hourlyForecast.innerHTML = "";
   els.dailyForecast.innerHTML = "";
@@ -586,7 +641,7 @@ async function fetchWeather(latitude, longitude, days = 5) {
   url.searchParams.set("hourly", "temperature_2m,weather_code,precipitation_probability");
   url.searchParams.set(
     "daily",
-    "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max"
+    "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max,sunrise,sunset"
   );
   url.searchParams.set("timezone", "auto");
   url.searchParams.set("forecast_days", String(Math.min(MAX_FORECAST_DAYS, Math.max(1, days))));
@@ -1233,6 +1288,7 @@ function renderWeather(city, weather) {
   els.weatherIcon.innerHTML = iconSvg("main", code);
   renderWeatherFx(code, new Date().getHours());
 
+  renderSun(weather.daily);
   renderHourly(weather.hourly);
   renderDaily(weather.daily);
   renderRainAlert(weather);
@@ -1308,6 +1364,8 @@ function bindEvents() {
 
   els.locateBtn.addEventListener("click", queryCurrentLocation);
 
+  if (els.shareBtn) els.shareBtn.addEventListener("click", shareWeather);
+
   els.favoriteBtn.addEventListener("click", toggleFavorite);
 
   els.favoriteChips.addEventListener("click", (e) => {
@@ -1356,8 +1414,17 @@ function bindEvents() {
   });
 }
 
+function registerServiceWorker() {
+  if (location.protocol === "file:") return;
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("sw.js").catch(() => {
+    // 註冊失敗不影響主功能
+  });
+}
+
 async function init() {
   bindEvents();
+  registerServiceWorker();
   setSearchHint(DEFAULT_CITY, false);
   renderFavorites();
   updateFavoriteBtn();

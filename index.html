@@ -4,7 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>天氣查詢</title>
-  <link rel="stylesheet" href="styles.css?v=20260714" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#d6e6f8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="天氣" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css?v=20260715" />
 </head>
 <body>
   <div class="phone">
@@ -42,11 +48,15 @@
 
       <section class="card card-weather" aria-labelledby="weatherTitle">
         <div class="weather-fx" id="weatherFx" aria-hidden="true"></div>
+        <button type="button" class="share-btn" id="shareBtn" aria-label="分享天氣" title="分享天氣">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="6" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="19" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><line x1="8.1" y1="10.7" x2="15.9" y2="6.3" stroke="currentColor" stroke-width="1.7"/><line x1="8.1" y1="13.3" x2="15.9" y2="17.7" stroke="currentColor" stroke-width="1.7"/></svg>
+        </button>
         <div class="weather-main">
           <div>
             <p class="temp" id="currentTemp">--°C</p>
             <p class="weather-desc" id="weatherDesc">載入中…</p>
             <p class="weather-extras" id="weatherExtras"></p>
+            <p class="weather-sun" id="weatherSun"></p>
           </div>
           <div class="weather-icon" id="weatherIcon" aria-hidden="true"></div>
         </div>
@@ -108,6 +118,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260712" defer></script>
+  <script src="app.js?v=20260715" defer></script>
 </body>
 </html>

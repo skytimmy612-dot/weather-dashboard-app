@@ -32,7 +32,7 @@ jobs:
       - name: Prepare site with config.js
         run: |
           mkdir site
-          cp index.html app.js styles.css site/
+          cp index.html app.js styles.css manifest.json sw.js icon-192.png icon-512.png site/
           cat > site/config.js <<EOF
           window.APP_CONFIG = {
             GOOGLE_PLACES_API_KEY: "${{ secrets.GOOGLE_PLACES_API_KEY }}",

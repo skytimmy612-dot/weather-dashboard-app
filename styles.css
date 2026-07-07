@@ -617,6 +617,46 @@ body {
   line-height: 1.4;
 }
 
+.weather-sun {
+  margin: 0.25rem 0 0;
+  color: var(--text-mid);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.share-btn {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-mid);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.share-btn svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.share-btn:hover {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
+}
+
+.share-btn:focus-visible {
+  outline: 2px solid var(--brown);
+  outline-offset: 2px;
+}
+
 .weather-icon {
   width: 5.5rem;
   height: 5.5rem;
