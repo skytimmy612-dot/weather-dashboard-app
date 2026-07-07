@@ -288,7 +288,121 @@ body {
 }
 
 .card-weather {
+  position: relative;
+  overflow: hidden;
   background: var(--blue-card);
+}
+
+.weather-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.weather-fx.fx-clear::before {
+  content: "";
+  position: absolute;
+  top: -20%;
+  right: -10%;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 120, 0.45) 0%, rgba(255, 220, 120, 0) 70%);
+  animation: fxGlowPulse 4s ease-in-out infinite;
+}
+
+.weather-fx.fx-clear::after {
+  content: "";
+  position: absolute;
+  top: -5%;
+  right: 5%;
+  width: 40%;
+  height: 40%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 240, 180, 0.35) 0%, transparent 65%);
+  animation: fxGlowRotate 12s linear infinite;
+}
+
+.weather-fx.fx-clear.fx-night::before {
+  background: radial-gradient(circle, rgba(180, 200, 255, 0.3) 0%, rgba(180, 200, 255, 0) 70%);
+}
+
+.weather-fx.fx-clear.fx-night::after {
+  background: radial-gradient(circle, rgba(200, 210, 255, 0.2) 0%, transparent 65%);
+}
+
+.fx-drop {
+  position: absolute;
+  top: -12%;
+  width: 2px;
+  height: 14px;
+  background: linear-gradient(to bottom, transparent, rgba(91, 155, 213, 0.85));
+  border-radius: 1px;
+  animation: fxFall linear infinite;
+}
+
+.fx-flake {
+  position: absolute;
+  top: -8%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 3px rgba(255, 255, 255, 0.6);
+  animation: fxSnowfall linear infinite;
+}
+
+.weather-fx.fx-thunder::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0);
+  animation: fxFlash 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes fxGlowPulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes fxGlowRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fxFall {
+  0% { transform: translateY(0); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 0.6; }
+  100% { transform: translateY(320px); opacity: 0; }
+}
+
+@keyframes fxSnowfall {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: 0.9; }
+  100% { transform: translate(20px, 320px); opacity: 0; }
+}
+
+@keyframes fxFlash {
+  0%, 88%, 100% { background: rgba(255, 255, 255, 0); }
+  90% { background: rgba(255, 255, 255, 0.25); }
+  92% { background: rgba(255, 255, 255, 0); }
+  94% { background: rgba(255, 255, 255, 0.15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-fx.fx-clear::before,
+  .weather-fx.fx-clear::after,
+  .fx-drop,
+  .fx-flake,
+  .weather-fx.fx-thunder::after {
+    animation: none !important;
+  }
+
+  .weather-fx.fx-clear::before {
+    opacity: 0.8;
+  }
 }
 
 .card-daily {
@@ -430,6 +544,8 @@ body {
 }
 
 .weather-main {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -469,6 +585,8 @@ body {
 }
 
 .hourly {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0.625rem;

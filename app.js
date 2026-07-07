@@ -142,6 +142,7 @@ const els = {
   weatherDesc: $("weatherDesc"),
   weatherExtras: $("weatherExtras"),
   weatherIcon: $("weatherIcon"),
+  weatherFx: $("weatherFx"),
   rainAlert: $("rainAlert"),
   favoriteBtn: $("favoriteBtn"),
   favoriteChips: $("favoriteChips"),
@@ -192,6 +193,58 @@ function weatherLabel(code) {
 
 function isRainy(code) {
   return [51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(code);
+}
+
+function isSnowy(code) {
+  return [71, 73, 75, 77, 85, 86].includes(code);
+}
+
+function weatherFxType(code, hour) {
+  if ([95, 96, 99].includes(code)) return "thunder";
+  if (isSnowy(code)) return "snow";
+  if (isRainy(code)) return "rain";
+  if (code <= 1) return "clear";
+  return "none";
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function renderWeatherFx(code, hour = new Date().getHours()) {
+  if (!els.weatherFx) return;
+
+  const type = weatherFxType(code, hour);
+  let className = `weather-fx fx-${type}`;
+  if (type === "clear" && hourIsNight(hour)) {
+    className += " fx-night";
+  }
+
+  els.weatherFx.className = className;
+  els.weatherFx.innerHTML = "";
+
+  if (type === "none") return;
+  if (prefersReducedMotion() && type !== "clear") return;
+
+  if (type === "rain" || type === "thunder") {
+    const count = type === "thunder" ? 16 : 14;
+    els.weatherFx.innerHTML = Array.from({ length: count }, () => {
+      const left = Math.random() * 100;
+      const delay = Math.random() * 2;
+      const duration = 0.6 + Math.random() * 0.8;
+      return `<span class="fx-drop" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s"></span>`;
+    }).join("");
+  }
+
+  if (type === "snow") {
+    els.weatherFx.innerHTML = Array.from({ length: 16 }, () => {
+      const left = Math.random() * 100;
+      const delay = Math.random() * 3;
+      const duration = 3 + Math.random() * 4;
+      const size = 3 + Math.random() * 5;
+      return `<span class="fx-flake" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s;width:${size}px;height:${size}px"></span>`;
+    }).join("");
+  }
 }
 
 function isHot(temp) {
@@ -359,6 +412,10 @@ function clearWeatherOnError() {
   els.dailyForecast.innerHTML = "";
   els.rainAlert.classList.add("hidden");
   els.rainAlert.innerHTML = "";
+  if (els.weatherFx) {
+    els.weatherFx.className = "weather-fx";
+    els.weatherFx.innerHTML = "";
+  }
 }
 
 function iconSvg(type, code = 0, hour = 12) {
@@ -1163,6 +1220,7 @@ function renderWeather(city, weather) {
   els.weatherDesc.textContent = `${label} · 濕度 ${humidity}%`;
   renderWeatherExtras(current);
   els.weatherIcon.innerHTML = iconSvg("main", code);
+  renderWeatherFx(code, new Date().getHours());
 
   renderHourly(weather.hourly);
   renderDaily(weather.daily);
