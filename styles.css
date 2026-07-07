@@ -344,11 +344,11 @@ body {
 .fx-drop {
   position: absolute;
   top: -15%;
-  width: 4px;
-  height: 26px;
+  width: 2px;
+  height: 16px;
   background: linear-gradient(to bottom, rgba(50, 110, 190, 0), rgba(40, 100, 190, 1));
   border-radius: 2px;
-  box-shadow: 0 0 4px rgba(60, 120, 200, 0.5);
+  box-shadow: 0 0 3px rgba(60, 120, 200, 0.4);
   animation: fxFall linear infinite;
 }
 
