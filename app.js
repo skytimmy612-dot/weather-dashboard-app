@@ -9,6 +9,8 @@ const MIN_FOOD_RATING_COUNT = 5;
 const MIN_SIGHT_RATING = 4.0;
 const MIN_SIGHT_RATING_COUNT = 5;
 const FOOD_SEARCH_RADIUS = 1500;
+const PLACES_CACHE_TTL_MS = 30 * 60 * 1000;
+const PLACES_MAX_RESULTS = 20;
 
 const STORAGE_KEY = "weather-dashboard-city";
 const FAVORITES_KEY = "weather-dashboard-favorites";
@@ -192,12 +194,12 @@ const els = {
 
 let foodExpanded = false;
 let foodItems = [];
-let foodLoadToken = 0;
 let displayedFoodItems = [];
 let sightExpanded = false;
 let sightItems = [];
-let sightLoadToken = 0;
 let displayedSightItems = [];
+let placesLoadToken = 0;
+let placesCache = { key: "", food: [], sights: [], expiresAt: 0 };
 let travelFoodItems = [];
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 
@@ -981,9 +983,9 @@ async function enterTravelMode(parsed) {
     const tripDates = buildTripDates(startDate, endDate);
     const forecastDays = calcForecastDays(endDate);
 
-    const [weatherResult, foodResult] = await Promise.allSettled([
+    const [weatherResult, placesResult] = await Promise.allSettled([
       fetchWeather(geoCity.latitude, geoCity.longitude, forecastDays),
-      fetchNearbyFood(geoCity.latitude, geoCity.longitude),
+      fetchNearbyRecommendations(geoCity.latitude, geoCity.longitude),
     ]);
 
     if (weatherResult.status === "rejected") {
@@ -994,9 +996,9 @@ async function enterTravelMode(parsed) {
     let restaurants = [];
     let foodError = "";
 
-    if (foodResult.status === "fulfilled") {
-      restaurants = foodResult.value;
-    } else if (foodResult.reason?.message === "NO_API_KEY") {
+    if (placesResult.status === "fulfilled") {
+      restaurants = placesResult.value.food;
+    } else if (placesResult.reason?.message === "NO_API_KEY") {
       foodError = "請設定 Google Places API Key 以顯示美食推薦";
     } else {
       foodError = "無法載入美食推薦";
@@ -1239,36 +1241,9 @@ function normalizeSight(place, originLat, originLng) {
   };
 }
 
-async function searchNearbyPlaces(latitude, longitude, options) {
+async function searchPlacesRaw(latitude, longitude, textQuery) {
   const apiKey = getPlacesApiKey();
   if (!apiKey) throw new Error("NO_API_KEY");
-
-  const {
-    textQuery,
-    includedType,
-    strictTypeFiltering = false,
-    minRating,
-    minRatingCount,
-    normalize,
-  } = options;
-
-  const body = {
-    textQuery,
-    minRating,
-    maxResultCount: 10,
-    languageCode: "zh-TW",
-    locationBias: {
-      circle: {
-        center: { latitude, longitude },
-        radius: FOOD_SEARCH_RADIUS,
-      },
-    },
-  };
-
-  if (includedType) {
-    body.includedType = includedType;
-    body.strictTypeFiltering = strictTypeFiltering;
-  }
 
   const res = await fetchWithOptions(PLACES_API, {
     method: "POST",
@@ -1278,7 +1253,18 @@ async function searchNearbyPlaces(latitude, longitude, options) {
       "X-Goog-FieldMask":
         "places.displayName,places.rating,places.location,places.googleMapsUri,places.primaryTypeDisplayName,places.primaryType,places.userRatingCount",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      textQuery,
+      minRating: MIN_FOOD_RATING,
+      maxResultCount: PLACES_MAX_RESULTS,
+      languageCode: "zh-TW",
+      locationBias: {
+        circle: {
+          center: { latitude, longitude },
+          radius: FOOD_SEARCH_RADIUS,
+        },
+      },
+    }),
   });
 
   if (!res.ok) {
@@ -1297,33 +1283,119 @@ async function searchNearbyPlaces(latitude, longitude, options) {
   }
 
   const data = await res.json();
-  return (data.places ?? [])
-    .filter(
-      (place) =>
-        (place.rating ?? 0) >= minRating && (place.userRatingCount ?? 0) >= minRatingCount
-    )
-    .map((place) => normalize(place, latitude, longitude))
-    .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  return (data.places ?? []).filter(
+    (place) =>
+      (place.rating ?? 0) >= MIN_FOOD_RATING &&
+      (place.userRatingCount ?? 0) >= MIN_FOOD_RATING_COUNT
+  );
 }
 
-async function fetchNearbyFood(latitude, longitude) {
-  return searchNearbyPlaces(latitude, longitude, {
-    textQuery: "restaurant",
-    minRating: MIN_FOOD_RATING,
-    minRatingCount: MIN_FOOD_RATING_COUNT,
-    normalize: normalizePlace,
-  });
+const FOOD_PLACE_TYPES = new Set([
+  "restaurant",
+  "cafe",
+  "bakery",
+  "bar",
+  "meal_delivery",
+  "meal_takeaway",
+  "food",
+  "ice_cream_shop",
+  "coffee_shop",
+  "fast_food_restaurant",
+  "brunch_restaurant",
+]);
+
+const SIGHT_PLACE_TYPES = new Set([
+  "tourist_attraction",
+  "museum",
+  "park",
+  "national_park",
+  "state_park",
+  "city_park",
+  "zoo",
+  "amusement_park",
+  "art_gallery",
+  "aquarium",
+  "botanical_garden",
+  "historical_landmark",
+  "marina",
+  "observation_deck",
+  "planetarium",
+  "performing_arts_theater",
+  "cultural_center",
+  "church",
+  "hindu_temple",
+  "mosque",
+  "synagogue",
+  "stadium",
+  "campground",
+  "hiking_area",
+]);
+
+function classifyPlaceKind(primaryType = "") {
+  const type = String(primaryType).toLowerCase();
+  if (FOOD_PLACE_TYPES.has(type) || type.includes("restaurant") || type.includes("cafe")) {
+    return "food";
+  }
+  if (
+    SIGHT_PLACE_TYPES.has(type) ||
+    type.includes("tourist") ||
+    type.includes("museum") ||
+    type.includes("park") ||
+    type.includes("landmark")
+  ) {
+    return "sight";
+  }
+  return null;
 }
 
-async function fetchNearbySights(latitude, longitude) {
-  return searchNearbyPlaces(latitude, longitude, {
-    textQuery: "tourist attraction",
-    includedType: "tourist_attraction",
-    strictTypeFiltering: true,
-    minRating: MIN_SIGHT_RATING,
-    minRatingCount: MIN_SIGHT_RATING_COUNT,
-    normalize: normalizeSight,
-  });
+function splitPlacesByKind(places, latitude, longitude) {
+  const food = [];
+  const sights = [];
+
+  for (const place of places) {
+    const kind = classifyPlaceKind(place.primaryType);
+    if (kind === "food") food.push(normalizePlace(place, latitude, longitude));
+    else if (kind === "sight") sights.push(normalizeSight(place, latitude, longitude));
+  }
+
+  food.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  sights.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  return { food: food.slice(0, 10), sights: sights.slice(0, 10) };
+}
+
+function placesCacheKey(latitude, longitude) {
+  return `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+}
+
+function getPlacesCache(latitude, longitude) {
+  const key = placesCacheKey(latitude, longitude);
+  if (placesCache.key === key && Date.now() < placesCache.expiresAt) {
+    return { food: placesCache.food, sights: placesCache.sights };
+  }
+  return null;
+}
+
+function setPlacesCache(latitude, longitude, food, sights) {
+  placesCache = {
+    key: placesCacheKey(latitude, longitude),
+    food,
+    sights,
+    expiresAt: Date.now() + PLACES_CACHE_TTL_MS,
+  };
+}
+
+async function fetchNearbyRecommendations(latitude, longitude) {
+  const cached = getPlacesCache(latitude, longitude);
+  if (cached) return cached;
+
+  const places = await searchPlacesRaw(
+    latitude,
+    longitude,
+    "restaurants and tourist attractions"
+  );
+  const result = splitPlacesByKind(places, latitude, longitude);
+  setPlacesCache(latitude, longitude, result.food, result.sights);
+  return result;
 }
 
 function placesErrorMessage(err, kind) {
@@ -1339,49 +1411,38 @@ function placesErrorMessage(err, kind) {
   return `無法載入${kind}，請稍後再試`;
 }
 
-async function loadSightPlaces(latitude, longitude) {
-  const token = ++sightLoadToken;
+async function loadNearbyPlaces(latitude, longitude) {
+  const token = ++placesLoadToken;
+  foodExpanded = false;
   sightExpanded = false;
+  renderFoodList([], false, { loading: true });
   renderSightList([], false, { loading: true });
 
   try {
-    const items = await fetchNearbySights(latitude, longitude);
-    if (token !== sightLoadToken) return;
+    const { food, sights } = await fetchNearbyRecommendations(latitude, longitude);
+    if (token !== placesLoadToken) return;
 
-    sightItems = items;
-    if (!items.length) {
-      renderSightList([], false, { message: "附近暫無 4 顆星以上景點" });
-      return;
-    }
+    foodItems = food;
+    sightItems = sights;
 
-    renderSightList(sightItems, false);
-  } catch (err) {
-    if (token !== sightLoadToken) return;
-    sightItems = [];
-    renderSightList([], false, { message: placesErrorMessage(err, "旅遊推薦") });
-  }
-}
-
-async function loadFoodPlaces(latitude, longitude) {
-  const token = ++foodLoadToken;
-  foodExpanded = false;
-  renderFoodList([], false, { loading: true });
-
-  try {
-    const items = await fetchNearbyFood(latitude, longitude);
-    if (token !== foodLoadToken) return;
-
-    foodItems = items;
-    if (!items.length) {
+    if (!food.length) {
       renderFoodList([], false, { message: "附近暫無 4 顆星以上餐廳" });
-      return;
+    } else {
+      renderFoodList(foodItems, false);
     }
 
-    renderFoodList(foodItems, false);
+    if (!sights.length) {
+      renderSightList([], false, { message: "附近暫無 4 顆星以上景點" });
+    } else {
+      renderSightList(sightItems, false);
+    }
   } catch (err) {
-    if (token !== foodLoadToken) return;
+    if (token !== placesLoadToken) return;
     foodItems = [];
-    renderFoodList([], false, { message: placesErrorMessage(err, "美食推薦") });
+    sightItems = [];
+    const message = placesErrorMessage(err, "美食與旅遊推薦");
+    renderFoodList([], false, { message });
+    renderSightList([], false, { message });
   }
 }
 
@@ -1616,8 +1677,7 @@ function renderWeather(city, weather) {
   renderDaily(weather.daily);
   renderRainAlert(weather);
   renderOutfit(temp, code);
-  loadFoodPlaces(currentCity.latitude, currentCity.longitude);
-  loadSightPlaces(currentCity.latitude, currentCity.longitude);
+  loadNearbyPlaces(currentCity.latitude, currentCity.longitude);
   updateFavoriteBtn();
   renderFavorites();
 }
