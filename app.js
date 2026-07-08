@@ -8,7 +8,10 @@ const MIN_FOOD_RATING = 4.0;
 const MIN_FOOD_RATING_COUNT = 5;
 const MIN_SIGHT_RATING = 4.0;
 const MIN_SIGHT_RATING_COUNT = 5;
-const FOOD_SEARCH_RADIUS = 1500;
+const FOOD_SEARCH_RADIUS = 12000;
+const PLACES_FILTER_RADIUS = 15000;
+const DISTRICT_SEARCH_RADIUS = 15000;
+const DISTRICT_FILTER_RADIUS = 15000;
 const PLACES_CACHE_TTL_MS = 30 * 60 * 1000;
 const PLACES_MAX_RESULTS = 20;
 
@@ -116,9 +119,9 @@ const PLACE_ALIASES = {
   馬德里: "Madrid",
   阿姆斯特丹: "Amsterdam",
   雷克雅維克: "Reykjavik",
-  沖縄: "Okinawa",
-  沖繩: "Okinawa",
-  冲绳: "Okinawa",
+  沖縄: "那覇",
+  沖繩: "那覇",
+  冲绳: "那覇",
   那霸: "那覇",
   那霸市: "那覇",
   北海道: "Hokkaido",
@@ -149,6 +152,10 @@ const DEFAULT_CITY = "台北市";
 const FALLBACK_CITIES = {
   台北市: { name: "台北市", latitude: 25.033, longitude: 121.5654 },
   台北: { name: "台北市", latitude: 25.033, longitude: 121.5654 },
+  基隆市: { name: "基隆市", latitude: 25.1282, longitude: 121.7443 },
+  基隆: { name: "基隆市", latitude: 25.1282, longitude: 121.7443 },
+  汐止區: { name: "汐止區", latitude: 25.068, longitude: 121.662 },
+  汐止: { name: "汐止區", latitude: 25.068, longitude: 121.662 },
   高雄: { name: "高雄", latitude: 22.6273, longitude: 120.3014 },
   台中市: { name: "台中市", latitude: 24.1477, longitude: 120.6736 },
   台南市: { name: "台南市", latitude: 22.9999, longitude: 120.2269 },
@@ -558,8 +565,20 @@ function hourIsNight(hour) {
 
 function isTaiwanCityName(name) {
   if (CITY_ALIASES[name] || FALLBACK_CITIES[name]) return true;
-  if (/[市縣]$/.test(name)) return true;
+  if (/[市縣區]$/.test(name)) return true;
   return Object.values(CITY_ALIASES).includes(name);
+}
+
+function isDistrictName(name) {
+  return /區$/.test(String(name ?? "").trim());
+}
+
+function getPlacesSearchRadius(cityName = "") {
+  return isDistrictName(cityName) ? DISTRICT_SEARCH_RADIUS : FOOD_SEARCH_RADIUS;
+}
+
+function getPlacesFilterRadius(cityName = "") {
+  return isDistrictName(cityName) ? DISTRICT_FILTER_RADIUS : PLACES_FILTER_RADIUS;
 }
 
 function citySearchVariants(name) {
@@ -589,7 +608,16 @@ function pickBestResult(results, query) {
   const preferred = results.filter((item) =>
     ["PPLC", "PPL", "PPLA", "PPLA2", "PCLI", "ADM1"].includes(item.feature_code)
   );
-  const pool = preferred.length ? preferred : results;
+  let pool = preferred.length ? preferred : results;
+
+  if (isTaiwanCityName(query)) {
+    const inTaiwan = pool.filter(
+      (item) =>
+        item.country_code === "TW" || isInTaiwan(item.latitude, item.longitude)
+    );
+    if (inTaiwan.length) pool = inTaiwan;
+  }
+
   return [...pool].sort((a, b) => (b.population ?? 0) - (a.population ?? 0))[0];
 }
 
@@ -657,6 +685,11 @@ function pickBestPhoton(results, query, bias) {
 
   if (!pool.length) return results[0];
 
+  if (isTaiwanCityName(query)) {
+    const inTaiwan = pool.filter((item) => isInTaiwan(item.latitude, item.longitude));
+    if (inTaiwan.length) pool = inTaiwan;
+  }
+
   const queryNorm = normalizePlaceName(query);
   const exact = pool.find(
     (item) =>
@@ -718,7 +751,46 @@ const PLACES_GEO_EXCLUDED_TYPES = new Set([
   "shopping_mall",
 ]);
 
-function pickBestPlacesGeocode(results, query) {
+function isInTaiwan(latitude, longitude) {
+  return latitude >= 21.5 && latitude <= 26.5 && longitude >= 119 && longitude <= 122.5;
+}
+
+function buildPlacesSearchOptions(latitude, longitude, extra = {}, cityName = "") {
+  // Text Search 的 locationRestriction 只支援矩形，圓形只能用 locationBias
+  const radius = getPlacesSearchRadius(cityName);
+  const options = {
+    languageCode: "zh-TW",
+    rankPreference: "RELEVANCE",
+    locationBias: {
+      circle: {
+        center: { latitude, longitude },
+        radius,
+      },
+    },
+    ...extra,
+  };
+  if (isInTaiwan(latitude, longitude)) {
+    options.regionCode = "TW";
+  }
+  return options;
+}
+
+function filterPlacesWithinRadius(
+  places,
+  originLat,
+  originLng,
+  cityName = "",
+  maxMeters = null
+) {
+  const limit = maxMeters ?? getPlacesFilterRadius(cityName);
+  return places.filter((place) => {
+    const lat = place.location?.latitude;
+    const lng = place.location?.longitude;
+    if (lat == null || lng == null) return false;
+    return haversineDistance(originLat, originLng, lat, lng) <= limit;
+  });
+}
+function pickBestPlacesGeocode(results, query, bias) {
   if (!results.length) return null;
 
   const preferred = results.filter((item) => {
@@ -735,13 +807,24 @@ function pickBestPlacesGeocode(results, query) {
     );
   });
 
-  const pool = preferred.length
+  let pool = preferred.length
     ? preferred
     : results.filter(
         (item) => !PLACES_GEO_EXCLUDED_TYPES.has(String(item.primaryType ?? "").toLowerCase())
       );
 
   if (!pool.length) return null;
+
+  if (isTaiwanCityName(query)) {
+    const inTaiwan = pool.filter((item) => isInTaiwan(item.latitude, item.longitude));
+    if (inTaiwan.length) pool = inTaiwan;
+  } else if (bias?.latitude != null && bias?.longitude != null) {
+    pool = [...pool].sort(
+      (a, b) =>
+        haversineKm(bias.latitude, bias.longitude, a.latitude, a.longitude) -
+        haversineKm(bias.latitude, bias.longitude, b.latitude, b.longitude)
+    );
+  }
 
   const queryNorm = normalizePlaceName(query);
   const exact = pool.find((item) => {
@@ -770,7 +853,7 @@ async function geocodeByPlaces(name) {
     body: JSON.stringify({
       textQuery: name,
       maxResultCount: 5,
-      languageCode: "zh-TW",
+      ...(isTaiwanCityName(name) ? { regionCode: "TW" } : {}),
     }),
   });
 
@@ -831,6 +914,16 @@ async function fetchWithOptions(url, options = {}, ms = 12000) {
   }
 }
 
+function resolveTaiwanCityCoords(result, query) {
+  if (!result || !isTaiwanCityName(query)) return result;
+  if (isInTaiwan(result.latitude, result.longitude)) return result;
+
+  for (const variant of citySearchVariants(query)) {
+    if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
+  }
+  return result;
+}
+
 async function geocodeCity(name) {
   const variants = citySearchVariants(name);
 
@@ -840,14 +933,22 @@ async function geocodeCity(name) {
         const results = await geocodeByName(variant, language);
         if (results.length) {
           const best = pickBestResult(results, variant);
+          const resolved = resolveTaiwanCityCoords(best, name);
           return {
-            ...best,
-            name: resolveDisplayName(name, best, variant),
+            ...resolved,
+            name: resolveDisplayName(name, resolved, variant),
           };
         }
       } catch {
         // try next language or variant
       }
+    }
+  }
+
+  // 台灣已知城市優先使用精準座標（避免 Photon 對到中國同名地）
+  if (isTaiwanCityName(name)) {
+    for (const variant of variants) {
+      if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
     }
   }
 
@@ -857,23 +958,32 @@ async function geocodeCity(name) {
       const results = await photonGeocode(variant, currentCity);
       const best = pickBestPhoton(results, variant, currentCity);
       if (best) {
-        return {
-          latitude: best.latitude,
-          longitude: best.longitude,
-          name: resolveDisplayName(name, best, variant),
-        };
+        const resolved = resolveTaiwanCityCoords(
+          {
+            latitude: best.latitude,
+            longitude: best.longitude,
+            name: resolveDisplayName(name, best, variant),
+          },
+          name
+        );
+        return resolved;
       }
     }
   } catch {
     // fall through to Places geocode or FALLBACK_CITIES
   }
 
-  // Open-Meteo、Photon 都失敗時，改用 Places（需 API Key）
+  // Open-Meteo、Photon 都失敗時，先查已知城市座標
+  for (const variant of variants) {
+    if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
+  }
+
+  // 仍失敗時，改用 Places（需 API Key）
   if (getPlacesApiKey()) {
     try {
       for (const variant of variants) {
         const results = await geocodeByPlaces(variant);
-        const best = pickBestPlacesGeocode(results, variant);
+        const best = pickBestPlacesGeocode(results, variant, currentCity);
         if (best) {
           return {
             latitude: best.latitude,
@@ -883,12 +993,8 @@ async function geocodeCity(name) {
         }
       }
     } catch {
-      // fall through to FALLBACK_CITIES
+      // fall through to error
     }
-  }
-
-  for (const variant of variants) {
-    if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
   }
 
   throw new Error(
@@ -1105,7 +1211,7 @@ async function enterTravelMode(parsed) {
 
     const [weatherResult, placesResult] = await Promise.allSettled([
       fetchWeather(geoCity.latitude, geoCity.longitude, forecastDays),
-      fetchNearbyRecommendations(geoCity.latitude, geoCity.longitude),
+      fetchNearbyRecommendations(geoCity.latitude, geoCity.longitude, geoCity.name),
     ]);
 
     if (weatherResult.status === "rejected") {
@@ -1361,53 +1467,53 @@ function normalizeSight(place, originLat, originLng) {
   };
 }
 
-async function searchPlacesRaw(latitude, longitude, textQuery) {
-  const apiKey = getPlacesApiKey();
-  if (!apiKey) throw new Error("NO_API_KEY");
-
-  const res = await fetchWithOptions(PLACES_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask":
-        "places.displayName,places.rating,places.location,places.googleMapsUri,places.primaryTypeDisplayName,places.primaryType,places.userRatingCount",
-    },
-    body: JSON.stringify({
-      textQuery,
-      minRating: MIN_FOOD_RATING,
-      maxResultCount: PLACES_MAX_RESULTS,
-      languageCode: "zh-TW",
-      locationBias: {
-        circle: {
-          center: { latitude, longitude },
-          radius: FOOD_SEARCH_RADIUS,
-        },
-      },
-    }),
+function sortByPopularity(places) {
+  return [...places].sort((a, b) => {
+    const countDiff = (b.userRatingCount ?? 0) - (a.userRatingCount ?? 0);
+    if (countDiff !== 0) return countDiff;
+    return (b.rating ?? 0) - (a.rating ?? 0);
   });
+}
 
-  if (!res.ok) {
-    let detail = "";
-    try {
-      const errData = await res.json();
-      detail = errData?.error?.message || errData?.error?.status || "";
-    } catch {
-      // ignore parse error
-    }
-    console.error("Places API 錯誤", res.status, detail);
-    const err = new Error("PLACES_API_ERROR");
-    err.status = res.status;
-    err.detail = detail;
-    throw err;
+function buildAreaSearchQuery(cityName, kind = "both") {
+  const area = String(cityName || currentCity?.name || "").trim();
+  if (!area) {
+    if (kind === "food") return "restaurant";
+    if (kind === "sight") return "tourist attraction";
+    return "restaurants and tourist attractions";
   }
+  if (kind === "food") return `${area} 美食推薦`;
+  if (kind === "sight") return `${area} 景點 旅遊推薦`;
+  return `${area} 美食 景點推薦`;
+}
 
-  const data = await res.json();
-  return (data.places ?? []).filter(
-    (place) =>
-      (place.rating ?? 0) >= MIN_FOOD_RATING &&
-      (place.userRatingCount ?? 0) >= MIN_FOOD_RATING_COUNT
-  );
+function buildFoodSearchQueries(cityName) {
+  const area = String(cityName || currentCity?.name || "").trim();
+  if (!area) return ["restaurant"];
+  const queries = [`${area} 美食推薦`, `${area} 餐廳`];
+  if (area.includes("基隆")) queries.push("基隆廟口夜市");
+  return queries;
+}
+
+function passesRatingFilter(place, kind = "food") {
+  const minRating = kind === "sight" ? MIN_SIGHT_RATING : MIN_FOOD_RATING;
+  const minCount = kind === "sight" ? MIN_SIGHT_RATING_COUNT : MIN_FOOD_RATING_COUNT;
+  return (place.rating ?? 0) >= minRating && (place.userRatingCount ?? 0) >= minCount;
+}
+
+function dedupePlaces(places) {
+  const seen = new Set();
+  return places.filter((place) => {
+    const key = [
+      place.id,
+      place.displayName?.text,
+      place.location?.latitude?.toFixed(4),
+      place.location?.longitude?.toFixed(4),
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 const FOOD_PLACE_TYPES = new Set([
@@ -1422,7 +1528,198 @@ const FOOD_PLACE_TYPES = new Set([
   "coffee_shop",
   "fast_food_restaurant",
   "brunch_restaurant",
+  "night_market",
+  "food_court",
+  "market",
+  "tea_house",
+  "asian_restaurant",
+  "chinese_restaurant",
+  "japanese_restaurant",
+  "korean_restaurant",
+  "thai_restaurant",
+  "vietnamese_restaurant",
+  "indian_restaurant",
+  "italian_restaurant",
+  "seafood_restaurant",
+  "steak_house",
+  "sushi_restaurant",
+  "ramen_restaurant",
+  "barbecue_restaurant",
+  "dessert_shop",
+  "donut_shop",
+  "sandwich_shop",
+  "hamburger_restaurant",
+  "pizza_restaurant",
+  "delicatessen_store",
+  "noodle_restaurant",
+  "breakfast_restaurant",
+  "buffet_restaurant",
+  "fine_dining_restaurant",
+  "pub",
+  "wine_bar",
+  "cat_cafe",
+  "dog_cafe",
+  "juice_shop",
+  "candy_store",
+  "chocolate_shop",
+  "confectionery",
+  "grocery_store",
+  "supermarket",
 ]);
+
+const NON_FOOD_PLACE_TYPES = new Set([
+  "place_of_worship",
+  "church",
+  "hindu_temple",
+  "mosque",
+  "synagogue",
+  "buddhist_temple",
+  "cemetery",
+  "school",
+  "primary_school",
+  "secondary_school",
+  "university",
+  "hospital",
+  "doctor",
+  "dentist",
+  "pharmacy",
+  "veterinary_care",
+  "gas_station",
+  "parking",
+  "bank",
+  "atm",
+  "post_office",
+  "police",
+  "fire_station",
+  "local_government_office",
+  "city_hall",
+  "courthouse",
+  "library",
+  "gym",
+  "spa",
+  "hair_care",
+  "beauty_salon",
+  "laundry",
+  "car_wash",
+  "car_repair",
+  "lodging",
+  "hotel",
+  "motel",
+  "real_estate_agency",
+  "insurance_agency",
+  "lawyer",
+  "accounting",
+  "store",
+  "shopping_mall",
+  "department_store",
+  "convenience_store",
+  "electronics_store",
+  "furniture_store",
+  "home_goods_store",
+  "clothing_store",
+  "shoe_store",
+  "jewelry_store",
+  "pet_store",
+  "florist",
+  "hardware_store",
+  "book_store",
+  "sporting_goods_store",
+  "bicycle_store",
+  "tourist_attraction",
+  "museum",
+  "park",
+  "national_park",
+  "state_park",
+  "city_park",
+  "zoo",
+  "amusement_park",
+  "art_gallery",
+  "aquarium",
+  "botanical_garden",
+  "historical_landmark",
+  "marina",
+  "observation_deck",
+  "planetarium",
+  "performing_arts_theater",
+  "cultural_center",
+  "stadium",
+  "campground",
+  "hiking_area",
+]);
+
+const NON_FOOD_NAME_KEYWORDS = ["禮拜場所", "宮", "廟", "寺", "祠堂", "陵", "祖師廟", "天公廟"];
+
+const FOOD_DISPLAY_KEYWORDS = [
+  "餐廳",
+  "小吃",
+  "美食",
+  "麵食",
+  "熟食",
+  "咖啡",
+  "茶寮",
+  "飲料",
+  "火鍋",
+  "燒肉",
+  "拉麵",
+  "壽司",
+  "早餐",
+  "午餐",
+  "晚餐",
+  "宵夜",
+  "甜品",
+  "烘焙",
+  "牛肉麵",
+  "餡餅",
+  "越南",
+  "日式",
+  "中式",
+];
+
+function isFoodPlace(place) {
+  const type = String(place.primaryType ?? "").toLowerCase();
+  const display = place.primaryTypeDisplayName?.text || "";
+  const name = place.displayName?.text || "";
+
+  if (NON_FOOD_PLACE_TYPES.has(type)) return false;
+  if (
+    type.includes("worship") ||
+    type.includes("temple") ||
+    type.includes("church") ||
+    type.includes("cemetery") ||
+    type.includes("school") ||
+    type.includes("hospital")
+  ) {
+    return false;
+  }
+
+  for (const keyword of NON_FOOD_NAME_KEYWORDS) {
+    if (display.includes(keyword) || name.includes(keyword)) return false;
+  }
+
+  if (
+    FOOD_PLACE_TYPES.has(type) ||
+    type.includes("restaurant") ||
+    type.includes("cafe") ||
+    type.includes("food") ||
+    type.includes("bakery") ||
+    type.includes("deli")
+  ) {
+    return true;
+  }
+
+  for (const keyword of FOOD_DISPLAY_KEYWORDS) {
+    if (display.includes(keyword) || name.includes(keyword)) return true;
+  }
+
+  return classifyPlaceKind(type, display) === "food";
+}
+
+function isSightPlace(place) {
+  const type = String(place.primaryType ?? "").toLowerCase();
+  const display = place.primaryTypeDisplayName?.text || "";
+  if (isFoodPlace(place)) return false;
+  return classifyPlaceKind(type, display) === "sight";
+}
 
 const SIGHT_PLACE_TYPES = new Set([
   "tourist_attraction",
@@ -1449,11 +1746,16 @@ const SIGHT_PLACE_TYPES = new Set([
   "stadium",
   "campground",
   "hiking_area",
+  "night_market",
+  "food_court",
+  "market",
+  "shopping_mall",
 ]);
 
-function classifyPlaceKind(primaryType = "") {
+function classifyPlaceKind(primaryType = "", typeDisplayName = "") {
   const type = String(primaryType).toLowerCase();
-  if (FOOD_PLACE_TYPES.has(type) || type.includes("restaurant") || type.includes("cafe")) {
+  const display = String(typeDisplayName).toLowerCase();
+  if (FOOD_PLACE_TYPES.has(type) || type.includes("restaurant") || type.includes("cafe") || type.includes("food")) {
     return "food";
   }
   if (
@@ -1465,56 +1767,159 @@ function classifyPlaceKind(primaryType = "") {
   ) {
     return "sight";
   }
+  if (
+    display.includes("觀光") ||
+    display.includes("景點") ||
+    display.includes("博物館") ||
+    display.includes("公園") ||
+    display.includes("夜市") ||
+    display.includes("廟口") ||
+    display.includes("attraction") ||
+    display.includes("museum")
+  ) {
+    return "sight";
+  }
+  if (
+    display.includes("餐廳") ||
+    display.includes("小吃") ||
+    display.includes("美食") ||
+    display.includes("restaurant")
+  ) {
+    return "food";
+  }
   return null;
 }
 
-function splitPlacesByKind(places, latitude, longitude) {
-  const food = [];
-  const sights = [];
+function mapFoodPlaces(places, latitude, longitude, cityName = "") {
+  return sortByPopularity(
+    filterPlacesWithinRadius(places, latitude, longitude, cityName)
+      .filter((place) => passesRatingFilter(place, "food"))
+      .filter(isFoodPlace)
+  )
+    .map((place) => normalizePlace(place, latitude, longitude))
+    .slice(0, 10);
+}
 
-  for (const place of places) {
-    const kind = classifyPlaceKind(place.primaryType);
-    if (kind === "food") food.push(normalizePlace(place, latitude, longitude));
-    else if (kind === "sight") sights.push(normalizeSight(place, latitude, longitude));
+function mapSightPlaces(places, latitude, longitude, cityName = "") {
+  return sortByPopularity(
+    filterPlacesWithinRadius(places, latitude, longitude, cityName)
+      .filter((place) => passesRatingFilter(place, "sight"))
+      .filter(isSightPlace)
+  )
+    .map((place) => normalizeSight(place, latitude, longitude))
+    .slice(0, 10);
+}
+
+async function searchFoodOnly(latitude, longitude, cityName = "") {
+  const apiKey = getPlacesApiKey();
+  if (!apiKey) throw new Error("NO_API_KEY");
+
+  const queries = buildFoodSearchQueries(cityName);
+  let merged = [];
+
+  for (const textQuery of queries) {
+    const res = await fetchWithOptions(PLACES_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask":
+          "places.id,places.displayName,places.rating,places.location,places.googleMapsUri,places.primaryTypeDisplayName,places.primaryType,places.userRatingCount",
+      },
+      body: JSON.stringify(
+        buildPlacesSearchOptions(
+          latitude,
+          longitude,
+          {
+            textQuery,
+            includedType: "restaurant",
+            strictTypeFiltering: false,
+            maxResultCount: PLACES_MAX_RESULTS,
+          },
+          cityName
+        )
+      ),
+    });
+
+    if (!res.ok) continue;
+
+    const data = await res.json();
+    merged = dedupePlaces([...merged, ...(data.places ?? [])]);
+    if (merged.filter(isFoodPlace).length >= 10) break;
   }
 
-  food.sort((a, b) => a.distanceMeters - b.distanceMeters);
-  sights.sort((a, b) => a.distanceMeters - b.distanceMeters);
-  return { food: food.slice(0, 10), sights: sights.slice(0, 10) };
+  return mapFoodPlaces(merged, latitude, longitude, cityName);
 }
 
-function placesCacheKey(latitude, longitude) {
-  return `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+async function searchSightsOnly(latitude, longitude, cityName = "") {
+  const apiKey = getPlacesApiKey();
+  if (!apiKey) throw new Error("NO_API_KEY");
+
+  const res = await fetchWithOptions(PLACES_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask":
+        "places.id,places.displayName,places.rating,places.location,places.googleMapsUri,places.primaryTypeDisplayName,places.primaryType,places.userRatingCount",
+    },
+    body: JSON.stringify(
+      buildPlacesSearchOptions(
+        latitude,
+        longitude,
+        {
+          textQuery: buildAreaSearchQuery(cityName, "sight"),
+          maxResultCount: PLACES_MAX_RESULTS,
+        },
+        cityName
+      )
+    ),
+  });
+
+  if (!res.ok) throw new Error("PLACES_API_ERROR");
+
+  const data = await res.json();
+  return mapSightPlaces(data.places ?? [], latitude, longitude, cityName);
 }
 
-function getPlacesCache(latitude, longitude) {
-  const key = placesCacheKey(latitude, longitude);
+function placesCacheKey(latitude, longitude, cityName = "") {
+  const area = String(cityName || currentCity?.name || "").trim();
+  return `${area}|${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+}
+
+function getPlacesCache(latitude, longitude, cityName = "") {
+  const key = placesCacheKey(latitude, longitude, cityName);
   if (placesCache.key === key && Date.now() < placesCache.expiresAt) {
     return { food: placesCache.food, sights: placesCache.sights };
   }
   return null;
 }
 
-function setPlacesCache(latitude, longitude, food, sights) {
+function setPlacesCache(latitude, longitude, food, sights, cityName = "") {
   placesCache = {
-    key: placesCacheKey(latitude, longitude),
+    key: placesCacheKey(latitude, longitude, cityName),
     food,
     sights,
     expiresAt: Date.now() + PLACES_CACHE_TTL_MS,
   };
 }
 
-async function fetchNearbyRecommendations(latitude, longitude) {
-  const cached = getPlacesCache(latitude, longitude);
+async function fetchNearbyRecommendations(latitude, longitude, cityName = "") {
+  const label = cityName || currentCity?.name || "";
+  const cached = getPlacesCache(latitude, longitude, label);
   if (cached) return cached;
 
-  const places = await searchPlacesRaw(
-    latitude,
-    longitude,
-    "restaurants and tourist attractions"
-  );
-  const result = splitPlacesByKind(places, latitude, longitude);
-  setPlacesCache(latitude, longitude, result.food, result.sights);
+  const [foodResult, sightsResult] = await Promise.allSettled([
+    searchFoodOnly(latitude, longitude, label),
+    searchSightsOnly(latitude, longitude, label),
+  ]);
+
+  const result = {
+    food: foodResult.status === "fulfilled" ? foodResult.value : [],
+    sights: sightsResult.status === "fulfilled" ? sightsResult.value : [],
+  };
+
+  setPlacesCache(latitude, longitude, result.food, result.sights, label);
   return result;
 }
 
@@ -1539,7 +1944,11 @@ async function loadNearbyPlaces(latitude, longitude) {
   renderSightList([], false, { loading: true });
 
   try {
-    const { food, sights } = await fetchNearbyRecommendations(latitude, longitude);
+    const { food, sights } = await fetchNearbyRecommendations(
+      latitude,
+      longitude,
+      currentCity?.name || ""
+    );
     if (token !== placesLoadToken) return;
 
     foodItems = food;
