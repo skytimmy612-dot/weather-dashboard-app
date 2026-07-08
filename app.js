@@ -1281,7 +1281,20 @@ async function searchNearbyPlaces(latitude, longitude, options) {
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) throw new Error("PLACES_API_ERROR");
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const errData = await res.json();
+      detail = errData?.error?.message || errData?.error?.status || "";
+    } catch {
+      // ignore parse error
+    }
+    console.error("Places API 錯誤", res.status, detail);
+    const err = new Error("PLACES_API_ERROR");
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
 
   const data = await res.json();
   return (data.places ?? [])
@@ -1313,6 +1326,19 @@ async function fetchNearbySights(latitude, longitude) {
   });
 }
 
+function placesErrorMessage(err, kind) {
+  if (err.message === "NO_API_KEY") {
+    return `無法載入${kind}，請確認 API Key 設定（本機：config.js；線上：GitHub Secret）`;
+  }
+  if (err.status === 429) {
+    return `${kind}查詢已達 API 用量上限，請稍後再試或檢查 Google Cloud 配額`;
+  }
+  if (err.status === 403) {
+    return `${kind} API 金鑰被拒（請檢查金鑰限制、帳單或是否已啟用 Places API）`;
+  }
+  return `無法載入${kind}，請稍後再試`;
+}
+
 async function loadSightPlaces(latitude, longitude) {
   const token = ++sightLoadToken;
   sightExpanded = false;
@@ -1332,11 +1358,7 @@ async function loadSightPlaces(latitude, longitude) {
   } catch (err) {
     if (token !== sightLoadToken) return;
     sightItems = [];
-    const message =
-      err.message === "NO_API_KEY"
-        ? "無法載入旅遊推薦，請確認 API Key 設定（本機：config.js；線上：GitHub Secret）"
-        : "無法載入旅遊推薦，請稍後再試";
-    renderSightList([], false, { message });
+    renderSightList([], false, { message: placesErrorMessage(err, "旅遊推薦") });
   }
 }
 
@@ -1359,11 +1381,7 @@ async function loadFoodPlaces(latitude, longitude) {
   } catch (err) {
     if (token !== foodLoadToken) return;
     foodItems = [];
-    const message =
-      err.message === "NO_API_KEY"
-        ? "無法載入美食推薦，請確認 API Key 設定（本機：config.js；線上：GitHub Secret）"
-        : "無法載入美食推薦，請稍後再試";
-    renderFoodList([], false, { message });
+    renderFoodList([], false, { message: placesErrorMessage(err, "美食推薦") });
   }
 }
 
