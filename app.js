@@ -697,6 +697,107 @@ async function photonGeocode(name, bias) {
   }));
 }
 
+const PLACES_GEO_PREFERRED_TYPES = new Set([
+  "locality",
+  "administrative_area_level_1",
+  "administrative_area_level_2",
+  "administrative_area_level_3",
+  "sublocality",
+  "sublocality_level_1",
+  "neighborhood",
+  "country",
+]);
+
+const PLACES_GEO_EXCLUDED_TYPES = new Set([
+  "restaurant",
+  "tourist_attraction",
+  "cafe",
+  "bar",
+  "store",
+  "lodging",
+  "shopping_mall",
+]);
+
+function pickBestPlacesGeocode(results, query) {
+  if (!results.length) return null;
+
+  const preferred = results.filter((item) => {
+    const type = String(item.primaryType ?? "").toLowerCase();
+    if (PLACES_GEO_EXCLUDED_TYPES.has(type)) return false;
+    return (
+      PLACES_GEO_PREFERRED_TYPES.has(type) ||
+      type.includes("locality") ||
+      type.includes("administrative") ||
+      type.includes("sublocality") ||
+      type === "city" ||
+      type === "district" ||
+      type === "town"
+    );
+  });
+
+  const pool = preferred.length
+    ? preferred
+    : results.filter(
+        (item) => !PLACES_GEO_EXCLUDED_TYPES.has(String(item.primaryType ?? "").toLowerCase())
+      );
+
+  if (!pool.length) return null;
+
+  const queryNorm = normalizePlaceName(query);
+  const exact = pool.find((item) => {
+    const displayName = item.displayName ?? item.name ?? "";
+    return (
+      normalizePlaceName(displayName) === queryNorm ||
+      normalizePlaceName(displayName.split(",")[0]) === queryNorm
+    );
+  });
+  if (exact) return exact;
+
+  return pool[0];
+}
+
+async function geocodeByPlaces(name) {
+  const apiKey = getPlacesApiKey();
+  if (!apiKey) throw new Error("NO_API_KEY");
+
+  const res = await fetchWithOptions(PLACES_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "places.displayName,places.location,places.primaryType",
+    },
+    body: JSON.stringify({
+      textQuery: name,
+      maxResultCount: 5,
+      languageCode: "zh-TW",
+    }),
+  });
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const errData = await res.json();
+      detail = errData?.error?.message || errData?.error?.status || "";
+    } catch {
+      // ignore parse error
+    }
+    console.error("Places geocode 錯誤", res.status, detail);
+    throw new Error("PLACES_API_ERROR");
+  }
+
+  const data = await res.json();
+  return (data.places ?? [])
+    .map((place) => ({
+      displayName: place.displayName?.text || "",
+      name: place.displayName?.text || "",
+      latitude: place.location?.latitude,
+      longitude: place.location?.longitude,
+      primaryType: place.primaryType || "",
+    }))
+    .filter((item) => item.latitude != null && item.longitude != null);
+}
+
 async function geocodeByName(name, language = "zh") {
   const url = new URL(GEO_API);
   url.searchParams.set("name", name);
@@ -764,7 +865,26 @@ async function geocodeCity(name) {
       }
     }
   } catch {
-    // fall through to FALLBACK_CITIES
+    // fall through to Places geocode or FALLBACK_CITIES
+  }
+
+  // Open-Meteo、Photon 都失敗時，改用 Places（需 API Key）
+  if (getPlacesApiKey()) {
+    try {
+      for (const variant of variants) {
+        const results = await geocodeByPlaces(variant);
+        const best = pickBestPlacesGeocode(results, variant);
+        if (best) {
+          return {
+            latitude: best.latitude,
+            longitude: best.longitude,
+            name: resolveDisplayName(name, best, variant),
+          };
+        }
+      }
+    } catch {
+      // fall through to FALLBACK_CITIES
+    }
   }
 
   for (const variant of variants) {
