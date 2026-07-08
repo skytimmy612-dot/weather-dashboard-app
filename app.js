@@ -1,4 +1,5 @@
 const GEO_API = "https://geocoding-api.open-meteo.com/v1/search";
+const PHOTON_API = "https://photon.komoot.io/api/";
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast";
 const REVERSE_GEO_API = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 const PLACES_API = "https://places.googleapis.com/v1/places:searchText";
@@ -114,12 +115,29 @@ const PLACE_ALIASES = {
   沖縄: "Okinawa",
   沖繩: "Okinawa",
   冲绳: "Okinawa",
+  那霸: "那覇",
+  那霸市: "那覇",
   北海道: "Hokkaido",
   京都: "Kyoto",
   大阪: "Osaka",
   福岡: "Fukuoka",
   名古屋: "Nagoya",
   札幌: "Sapporo",
+  神戶: "Kobe",
+  神戸: "Kobe",
+  橫濱: "Yokohama",
+  横浜: "Yokohama",
+  仙台: "Sendai",
+  廣島: "Hiroshima",
+  長崎: "Nagasaki",
+  奈良: "Nara",
+  釜山: "Busan",
+  濟州: "Jeju",
+  曼谷: "Bangkok",
+  清邁: "Chiang Mai",
+  峇里島: "Bali",
+  峇厘島: "Bali",
+  吉隆坡: "Kuala Lumpur",
 };
 
 const DEFAULT_CITY = "台北市";
@@ -568,6 +586,102 @@ function resolveDisplayName(userInput, result, matchedVariant) {
   return result.name || trimmed;
 }
 
+const PHOTON_PREFERRED_TYPES = new Set([
+  "city",
+  "town",
+  "village",
+  "suburb",
+  "district",
+  "state",
+  "county",
+  "municipality",
+]);
+
+const PHOTON_EXCLUDED_TYPES = new Set(["house", "station", "building"]);
+
+function buildPhotonName(props) {
+  const parts = [props.name];
+  if (props.city && props.city !== props.name) parts.push(props.city);
+  else if (props.state && props.state !== props.name) parts.push(props.state);
+  return parts.join(", ");
+}
+
+function normalizePlaceName(name) {
+  return String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/臺/g, "台");
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function pickBestPhoton(results, query, bias) {
+  if (!results.length) return null;
+
+  const preferred = results.filter((item) => {
+    const osmValue = item.props?.osm_value ?? "";
+    const type = item.props?.type ?? "";
+    if (PHOTON_EXCLUDED_TYPES.has(osmValue)) return false;
+    return PHOTON_PREFERRED_TYPES.has(osmValue) || PHOTON_PREFERRED_TYPES.has(type);
+  });
+
+  const pool = preferred.length
+    ? preferred
+    : results.filter((item) => !PHOTON_EXCLUDED_TYPES.has(item.props?.osm_value ?? ""));
+
+  if (!pool.length) return results[0];
+
+  const queryNorm = normalizePlaceName(query);
+  const exact = pool.find(
+    (item) =>
+      normalizePlaceName(item.props?.name) === queryNorm ||
+      normalizePlaceName(item.name.split(",")[0]) === queryNorm
+  );
+  if (exact) return exact;
+
+  if (bias?.latitude != null && bias?.longitude != null) {
+    return [...pool].sort(
+      (a, b) =>
+        haversineKm(bias.latitude, bias.longitude, a.latitude, a.longitude) -
+        haversineKm(bias.latitude, bias.longitude, b.latitude, b.longitude)
+    )[0];
+  }
+
+  return pool[0];
+}
+
+async function photonGeocode(name, bias) {
+  const url = new URL(PHOTON_API);
+  url.searchParams.set("q", name);
+  url.searchParams.set("limit", "8");
+  url.searchParams.set("lang", "default");
+  if (bias?.latitude != null && bias?.longitude != null) {
+    url.searchParams.set("lat", String(bias.latitude));
+    url.searchParams.set("lon", String(bias.longitude));
+  }
+
+  const res = await fetchWithTimeout(url.toString());
+  if (!res.ok) throw new Error("地理編碼服務暫時無法使用");
+  const data = await res.json();
+  return (data.features ?? []).map((feature) => ({
+    name: buildPhotonName(feature.properties),
+    latitude: feature.geometry.coordinates[1],
+    longitude: feature.geometry.coordinates[0],
+    props: feature.properties,
+  }));
+}
+
 async function geocodeByName(name, language = "zh") {
   const url = new URL(GEO_API);
   url.searchParams.set("name", name);
@@ -619,6 +733,23 @@ async function geocodeCity(name) {
         // try next language or variant
       }
     }
+  }
+
+  // Open-Meteo 找不到時，改用 Photon（涵蓋鄉鎮市區與全球地區）
+  try {
+    for (const variant of variants) {
+      const results = await photonGeocode(variant, currentCity);
+      const best = pickBestPhoton(results, variant, currentCity);
+      if (best) {
+        return {
+          latitude: best.latitude,
+          longitude: best.longitude,
+          name: resolveDisplayName(name, best, variant),
+        };
+      }
+    }
+  } catch {
+    // fall through to FALLBACK_CITIES
   }
 
   for (const variant of variants) {
