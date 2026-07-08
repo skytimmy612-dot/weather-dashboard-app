@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="天氣" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=20260716" />
+  <link rel="stylesheet" href="styles.css?v=20260720" />
 </head>
 <body>
   <div class="phone">
@@ -91,6 +91,17 @@
         <ul class="food-list" id="foodList"></ul>
       </section>
 
+      <section class="card card-sights" aria-labelledby="sightTitle">
+        <div class="sight-header">
+          <h2 class="card-title" id="sightTitle">
+            <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2 5h5l-4 3 1.5 5L12 13l-4.5 2L9 10 5 7h5l2-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            附近旅遊推薦
+          </h2>
+          <button class="link-btn" type="button" id="viewAllSights">查看全部</button>
+        </div>
+        <ul class="sight-list" id="sightList"></ul>
+      </section>
+
       <section class="card card-travel hidden" id="travelSummary" aria-labelledby="travelTitle">
         <h2 class="card-title" id="travelTitle">行程摘要</h2>
         <div class="travel-days" id="travelDays"></div>
@@ -110,6 +121,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v8M10 3v8M6 7h4M14 3v5c0 2 2 3 2 5v9M18 3v5c0 2-2 3-2 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         美食
       </button>
+      <button class="nav-btn" type="button" data-tab="sights">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2 5h5l-4 3 1.5 5L12 13l-4.5 2L9 10 5 7h5l2-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        旅遊
+      </button>
     </nav>
 
     <div class="home-indicator" aria-hidden="true"></div>
@@ -119,6 +134,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260718" defer></script>
+  <script src="app.js?v=20260720" defer></script>
 </body>
 </html>

@@ -6,6 +6,8 @@ const PLACES_API = "https://places.googleapis.com/v1/places:searchText";
 
 const MIN_FOOD_RATING = 4.0;
 const MIN_FOOD_RATING_COUNT = 5;
+const MIN_SIGHT_RATING = 4.0;
+const MIN_SIGHT_RATING_COUNT = 5;
 const FOOD_SEARCH_RADIUS = 1500;
 
 const STORAGE_KEY = "weather-dashboard-city";
@@ -170,9 +172,11 @@ const els = {
   dailyForecast: $("dailyForecast"),
   outfitGrid: $("outfitGrid"),
   foodList: $("foodList"),
+  viewAllFood: $("viewAllFood"),
+  sightList: $("sightList"),
+  viewAllSights: $("viewAllSights"),
   loading: $("loading"),
   error: $("error"),
-  viewAllFood: $("viewAllFood"),
   travelSummary: $("travelSummary"),
   travelDays: $("travelDays"),
   travelTitle: $("travelTitle"),
@@ -182,6 +186,7 @@ const els = {
     weather: document.querySelector(".card-weather"),
     outfit: document.querySelector(".card-outfit"),
     food: document.querySelector(".card-food"),
+    sights: document.querySelector(".card-sights"),
   },
 };
 
@@ -189,6 +194,10 @@ let foodExpanded = false;
 let foodItems = [];
 let foodLoadToken = 0;
 let displayedFoodItems = [];
+let sightExpanded = false;
+let sightItems = [];
+let sightLoadToken = 0;
+let displayedSightItems = [];
 let travelFoodItems = [];
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 
@@ -517,6 +526,10 @@ function iconSvg(type, code = 0, hour = 12) {
     bowl: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16v2c0 4-3 7-8 7s-8-3-8-7v-2z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`,
     salad: `<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13" rx="8" ry="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 10l4-4 4 4" fill="none" stroke="#6aa84f" stroke-width="1.6"/></svg>`,
     coffee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h10v8a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8zm10 2h2a3 3 0 0 1 0 6h-2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`,
+    park: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l3 6 6 1-4.5 4.5L18 21l-6-3-6 3 1.5-6.5L3 10l6-1 3-6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+    museum: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V9l8-4 8 4v12M4 21h16M9 21v-6h6v6M8 9h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+    landmark: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2 5h5l-4 3 1.5 5L12 13l-4.5 2L9 10 5 7h5l2-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+    camera: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`,
   };
 
   if (type === "main") {
@@ -1041,6 +1054,7 @@ async function enterTravelMode(parsed) {
     clearTravelSummary();
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
+    renderSightList([], false, { message: "無法載入旅遊推薦" });
   } finally {
     setLoading(false);
   }
@@ -1093,6 +1107,7 @@ async function queryByCoords(latitude, longitude) {
     clearWeatherOnError();
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
+    renderSightList([], false, { message: "無法載入旅遊推薦" });
   } finally {
     setLoading(false);
   }
@@ -1111,6 +1126,7 @@ async function querySavedCity(city) {
     clearWeatherOnError();
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
+    renderSightList([], false, { message: "無法載入旅遊推薦" });
   } finally {
     setLoading(false);
   }
@@ -1174,9 +1190,23 @@ function mapPlaceIcon(primaryType = "") {
   return "bowl";
 }
 
-function formatFoodDistance(meters) {
+function mapSightIcon(primaryType = "") {
+  const type = String(primaryType).toLowerCase();
+  if (type.includes("museum") || type.includes("gallery")) return "museum";
+  if (type.includes("park") || type.includes("garden") || type.includes("zoo")) return "park";
+  if (type.includes("landmark") || type.includes("monument") || type.includes("temple")) {
+    return "landmark";
+  }
+  return "camera";
+}
+
+function formatPlaceDistance(meters) {
   if (meters < 1000) return `${Math.round(meters)} 公尺`;
   return `${(meters / 1000).toFixed(1)} 公里`;
+}
+
+function formatFoodDistance(meters) {
+  return formatPlaceDistance(meters);
 }
 
 function normalizePlace(place, originLat, originLng) {
@@ -1194,9 +1224,51 @@ function normalizePlace(place, originLat, originLng) {
   };
 }
 
-async function fetchNearbyFood(latitude, longitude) {
+function normalizeSight(place, originLat, originLng) {
+  const lat = place.location?.latitude ?? originLat;
+  const lng = place.location?.longitude ?? originLng;
+  const desc = place.primaryTypeDisplayName?.text || "景點";
+
+  return {
+    name: place.displayName?.text || "未命名景點",
+    desc,
+    icon: mapSightIcon(place.primaryType || desc),
+    rating: place.rating ?? 0,
+    distanceMeters: haversineDistance(originLat, originLng, lat, lng),
+    mapsUrl: place.googleMapsUri || "",
+  };
+}
+
+async function searchNearbyPlaces(latitude, longitude, options) {
   const apiKey = getPlacesApiKey();
   if (!apiKey) throw new Error("NO_API_KEY");
+
+  const {
+    textQuery,
+    includedType,
+    strictTypeFiltering = false,
+    minRating,
+    minRatingCount,
+    normalize,
+  } = options;
+
+  const body = {
+    textQuery,
+    minRating,
+    maxResultCount: 10,
+    languageCode: "zh-TW",
+    locationBias: {
+      circle: {
+        center: { latitude, longitude },
+        radius: FOOD_SEARCH_RADIUS,
+      },
+    },
+  };
+
+  if (includedType) {
+    body.includedType = includedType;
+    body.strictTypeFiltering = strictTypeFiltering;
+  }
 
   const res = await fetchWithOptions(PLACES_API, {
     method: "POST",
@@ -1206,18 +1278,7 @@ async function fetchNearbyFood(latitude, longitude) {
       "X-Goog-FieldMask":
         "places.displayName,places.rating,places.location,places.googleMapsUri,places.primaryTypeDisplayName,places.primaryType,places.userRatingCount",
     },
-    body: JSON.stringify({
-      textQuery: "restaurant",
-      minRating: MIN_FOOD_RATING,
-      maxResultCount: 10,
-      languageCode: "zh-TW",
-      locationBias: {
-        circle: {
-          center: { latitude, longitude },
-          radius: FOOD_SEARCH_RADIUS,
-        },
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) throw new Error("PLACES_API_ERROR");
@@ -1226,11 +1287,57 @@ async function fetchNearbyFood(latitude, longitude) {
   return (data.places ?? [])
     .filter(
       (place) =>
-        (place.rating ?? 0) >= MIN_FOOD_RATING &&
-        (place.userRatingCount ?? 0) >= MIN_FOOD_RATING_COUNT
+        (place.rating ?? 0) >= minRating && (place.userRatingCount ?? 0) >= minRatingCount
     )
-    .map((place) => normalizePlace(place, latitude, longitude))
+    .map((place) => normalize(place, latitude, longitude))
     .sort((a, b) => a.distanceMeters - b.distanceMeters);
+}
+
+async function fetchNearbyFood(latitude, longitude) {
+  return searchNearbyPlaces(latitude, longitude, {
+    textQuery: "restaurant",
+    minRating: MIN_FOOD_RATING,
+    minRatingCount: MIN_FOOD_RATING_COUNT,
+    normalize: normalizePlace,
+  });
+}
+
+async function fetchNearbySights(latitude, longitude) {
+  return searchNearbyPlaces(latitude, longitude, {
+    textQuery: "tourist attraction",
+    includedType: "tourist_attraction",
+    strictTypeFiltering: true,
+    minRating: MIN_SIGHT_RATING,
+    minRatingCount: MIN_SIGHT_RATING_COUNT,
+    normalize: normalizeSight,
+  });
+}
+
+async function loadSightPlaces(latitude, longitude) {
+  const token = ++sightLoadToken;
+  sightExpanded = false;
+  renderSightList([], false, { loading: true });
+
+  try {
+    const items = await fetchNearbySights(latitude, longitude);
+    if (token !== sightLoadToken) return;
+
+    sightItems = items;
+    if (!items.length) {
+      renderSightList([], false, { message: "附近暫無 4 顆星以上景點" });
+      return;
+    }
+
+    renderSightList(sightItems, false);
+  } catch (err) {
+    if (token !== sightLoadToken) return;
+    sightItems = [];
+    const message =
+      err.message === "NO_API_KEY"
+        ? "無法載入旅遊推薦，請確認 API Key 設定（本機：config.js；線上：GitHub Secret）"
+        : "無法載入旅遊推薦，請稍後再試";
+    renderSightList([], false, { message });
+  }
 }
 
 async function loadFoodPlaces(latitude, longitude) {
@@ -1287,14 +1394,22 @@ function renderOutfit(temp, code) {
     .join("");
 }
 
-function buildFoodMapsUrl(item) {
+function buildMapsUrl(item) {
   if (item.mapsUrl) return item.mapsUrl;
   const query = `${item.name} ${currentCity.name}`;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+function buildFoodMapsUrl(item) {
+  return buildMapsUrl(item);
+}
+
 function openFoodOnMaps(item) {
-  window.open(buildFoodMapsUrl(item), "_blank", "noopener,noreferrer");
+  window.open(buildMapsUrl(item), "_blank", "noopener,noreferrer");
+}
+
+function openSightOnMaps(item) {
+  window.open(buildMapsUrl(item), "_blank", "noopener,noreferrer");
 }
 
 function handleFoodItemAction(row) {
@@ -1303,19 +1418,25 @@ function handleFoodItemAction(row) {
   if (item) openFoodOnMaps(item);
 }
 
+function handleSightItemAction(row) {
+  const index = Number(row.dataset.sightIndex);
+  const item = displayedSightItems[index];
+  if (item) openSightOnMaps(item);
+}
+
 function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
   foodExpanded = showAll;
 
   if (state.loading) {
     displayedFoodItems = [];
-    els.foodList.innerHTML = `<li class="food-status">載入美食推薦中…</li>`;
+    els.foodList.innerHTML = `<li class="place-status">載入美食推薦中…</li>`;
     els.viewAllFood.classList.add("hidden");
     return;
   }
 
   if (state.message) {
     displayedFoodItems = [];
-    els.foodList.innerHTML = `<li class="food-status">${state.message}</li>`;
+    els.foodList.innerHTML = `<li class="place-status">${state.message}</li>`;
     els.viewAllFood.classList.add("hidden");
     return;
   }
@@ -1324,7 +1445,7 @@ function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
   displayedFoodItems = picks;
 
   if (!picks.length) {
-    els.foodList.innerHTML = `<li class="food-status">附近暫無 4 顆星以上餐廳</li>`;
+    els.foodList.innerHTML = `<li class="place-status">附近暫無 4 顆星以上餐廳</li>`;
     els.viewAllFood.classList.add("hidden");
     return;
   }
@@ -1343,7 +1464,7 @@ function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
         ${iconSvg(item.icon)}
         <div>
           <h3>${item.name}</h3>
-          <p>${item.desc} · ${formatFoodDistance(item.distanceMeters)}</p>
+          <p>${item.desc} · ${formatPlaceDistance(item.distanceMeters)}</p>
         </div>
         <span class="rating">★ ${item.rating.toFixed(1)}</span>
       </li>`
@@ -1352,6 +1473,59 @@ function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
   els.viewAllFood.textContent = showAll ? "收合" : "查看全部";
   els.viewAllFood.setAttribute("aria-expanded", String(showAll));
   els.viewAllFood.classList.toggle("hidden", items.length <= 3);
+}
+
+function renderSightList(items = sightItems, showAll = sightExpanded, state = {}) {
+  if (!els.sightList || !els.viewAllSights) return;
+
+  sightExpanded = showAll;
+
+  if (state.loading) {
+    displayedSightItems = [];
+    els.sightList.innerHTML = `<li class="place-status">載入旅遊推薦中…</li>`;
+    els.viewAllSights.classList.add("hidden");
+    return;
+  }
+
+  if (state.message) {
+    displayedSightItems = [];
+    els.sightList.innerHTML = `<li class="place-status">${state.message}</li>`;
+    els.viewAllSights.classList.add("hidden");
+    return;
+  }
+
+  const picks = showAll ? items : items.slice(0, 3);
+  displayedSightItems = picks;
+
+  if (!picks.length) {
+    els.sightList.innerHTML = `<li class="place-status">附近暫無 4 顆星以上景點</li>`;
+    els.viewAllSights.classList.add("hidden");
+    return;
+  }
+
+  els.viewAllSights.classList.remove("hidden");
+  els.sightList.innerHTML = picks
+    .map(
+      (item, i) => `
+      <li
+        class="sight-item"
+        role="button"
+        tabindex="0"
+        data-sight-index="${i}"
+        aria-label="在 Google Maps 開啟${item.name}"
+      >
+        ${iconSvg(item.icon)}
+        <div>
+          <h3>${item.name}</h3>
+          <p>${item.desc} · ${formatPlaceDistance(item.distanceMeters)}</p>
+        </div>
+        <span class="rating">★ ${item.rating.toFixed(1)}</span>
+      </li>`
+    )
+    .join("");
+  els.viewAllSights.textContent = showAll ? "收合" : "查看全部";
+  els.viewAllSights.setAttribute("aria-expanded", String(showAll));
+  els.viewAllSights.classList.toggle("hidden", items.length <= 3);
 }
 
 function renderHourly(hourly) {
@@ -1425,6 +1599,7 @@ function renderWeather(city, weather) {
   renderRainAlert(weather);
   renderOutfit(temp, code);
   loadFoodPlaces(currentCity.latitude, currentCity.longitude);
+  loadSightPlaces(currentCity.latitude, currentCity.longitude);
   updateFavoriteBtn();
   renderFavorites();
 }
@@ -1451,6 +1626,7 @@ async function queryCity(cityName) {
     clearWeatherOnError();
     renderOutfit(25, 3);
     renderFoodList([], false, { message: "無法載入美食推薦" });
+    renderSightList([], false, { message: "無法載入旅遊推薦" });
   } finally {
     setLoading(false);
   }
@@ -1475,6 +1651,10 @@ function toggleFoodList() {
   }
 }
 
+function toggleSightList() {
+  renderSightList(sightItems, !sightExpanded);
+}
+
 function bindEvents() {
   els.searchForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1492,6 +1672,8 @@ function bindEvents() {
   });
 
   els.viewAllFood.addEventListener("click", toggleFoodList);
+
+  if (els.viewAllSights) els.viewAllSights.addEventListener("click", toggleSightList);
 
   els.locateBtn.addEventListener("click", queryCurrentLocation);
 
@@ -1528,6 +1710,22 @@ function bindEvents() {
     handleFoodItemAction(row);
   });
 
+  if (els.sightList) {
+    els.sightList.addEventListener("click", (e) => {
+      const row = e.target.closest(".sight-item");
+      if (!row) return;
+      handleSightItemAction(row);
+    });
+
+    els.sightList.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const row = e.target.closest(".sight-item");
+      if (!row) return;
+      e.preventDefault();
+      handleSightItemAction(row);
+    });
+  }
+
   if (els.travelDays) {
     els.travelDays.addEventListener("click", (e) => {
       const row = e.target.closest("[data-travel-food-index]");
@@ -1562,8 +1760,12 @@ async function init() {
   renderOutfit(28, 0);
   if (getPlacesApiKey()) {
     renderFoodList([], false, { loading: true });
+    renderSightList([], false, { loading: true });
   } else {
     renderFoodList([], false, {
+      message: "請手動建立 config.js 並填入 Google Places API Key",
+    });
+    renderSightList([], false, {
       message: "請手動建立 config.js 並填入 Google Places API Key",
     });
   }

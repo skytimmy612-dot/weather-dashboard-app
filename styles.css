@@ -4,6 +4,7 @@
   --daily-card: #e3eef9;
   --purple-card: #e1daf2;
   --peach-card: #ffecda;
+  --sights-card: #e4f2e8;
   --travel-card: #e4f2e8;
   --white: #ffffff;
   --text: #1e1e1e;
@@ -465,6 +466,10 @@ body {
   background: var(--peach-card);
 }
 
+.card-sights {
+  background: var(--sights-card);
+}
+
 .card-travel {
   background: var(--travel-card);
 }
@@ -810,6 +815,17 @@ body {
   margin: 0;
 }
 
+.sight-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.sight-header .card-title {
+  margin: 0;
+}
+
 .link-btn {
   border: none;
   background: none;
@@ -823,7 +839,8 @@ body {
   display: none;
 }
 
-.food-status {
+.food-status,
+.place-status {
   background: var(--white);
   border-radius: var(--radius-md);
   padding: 1rem;
@@ -833,7 +850,8 @@ body {
   list-style: none;
 }
 
-.food-list {
+.food-list,
+.sight-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -842,7 +860,8 @@ body {
   gap: 0.625rem;
 }
 
-.food-item {
+.food-item,
+.sight-item {
   background: var(--white);
   border-radius: var(--radius-md);
   padding: 0.875rem 1rem;
@@ -854,39 +873,46 @@ body {
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
-.food-item:hover {
+.food-item:hover,
+.sight-item:hover {
   background: #fafafa;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.food-item:active {
+.food-item:active,
+.sight-item:active {
   background: #f0f0f0;
 }
 
-.food-item:focus-visible {
+.food-item:focus-visible,
+.sight-item:focus-visible {
   outline: 2px solid var(--brown);
   outline-offset: 2px;
 }
 
-.food-item svg {
+.food-item svg,
+.sight-item svg {
   width: 2.25rem;
   height: 2.25rem;
   color: var(--text);
 }
 
-.food-item h3 {
+.food-item h3,
+.sight-item h3 {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
 }
 
-.food-item p {
+.food-item p,
+.sight-item p {
   margin: 0.25rem 0 0;
   font-size: 0.82rem;
   color: var(--text-light);
 }
 
-.food-item .rating {
+.food-item .rating,
+.sight-item .rating {
   color: var(--brown);
   font-size: 0.9rem;
   font-weight: 600;
@@ -900,7 +926,7 @@ body {
   bottom: calc(1.5rem + var(--safe-bottom));
   width: calc(var(--phone-w) - 2.5rem);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 0.625rem;
   z-index: 10;
 }
@@ -909,12 +935,12 @@ body {
   border: 2px solid #d0d0d0;
   background: var(--white);
   border-radius: var(--radius-md);
-  padding: 0.625rem 0.5rem 0.5rem;
+  padding: 0.625rem 0.35rem 0.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: var(--text-mid);
   cursor: pointer;
 }
