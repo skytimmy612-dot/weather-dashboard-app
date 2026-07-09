@@ -212,6 +212,8 @@ let displayedSightItems = [];
 let placesLoadToken = 0;
 let placesCache = { key: "", food: [], sights: [], expiresAt: 0 };
 let travelFoodItems = [];
+let travelSightItems = [];
+let travelShareContext = null;
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 let autocompleteItems = [];
 let autocompleteActiveIndex = -1;
@@ -481,7 +483,36 @@ function renderSun(daily) {
   els.weatherSun.textContent = `日出 ${sunrise} · 日落 ${sunset}`;
 }
 
+function buildTravelShareText(ctx) {
+  const lines = [`${ctx.cityName}旅遊行程 ${ctx.dateRange}`, ""];
+
+  for (const day of ctx.tripDays) {
+    lines.push(day.dateLabel);
+    if (day.outOfRange) {
+      lines.push("超出預報範圍");
+      lines.push("");
+      continue;
+    }
+
+    lines.push(`天氣：${day.label} · ${day.maxTemp}° / ${day.minTemp}°`);
+    if (day.outfit?.length) {
+      lines.push(`穿搭：${day.outfit.map((item) => item.label).join("、")}`);
+    }
+    if (day.restaurant) {
+      lines.push(`美食：${day.restaurant.name} ★${day.restaurant.rating.toFixed(1)}`);
+    }
+    if (day.sight) {
+      lines.push(`景點：${day.sight.name} ★${day.sight.rating.toFixed(1)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
 function buildShareText() {
+  if (travelShareContext) return buildTravelShareText(travelShareContext);
+
   const parts = [];
   parts.push(`${currentCity.name} ${els.currentTemp.textContent}`);
   if (els.weatherDesc.textContent) parts.push(els.weatherDesc.textContent);
@@ -492,7 +523,10 @@ function buildShareText() {
 
 async function shareWeather() {
   const text = buildShareText();
-  const shareData = { title: "天氣查詢", text, url: location.href };
+  const title = travelShareContext
+    ? `${travelShareContext.cityName} 旅遊行程`
+    : "天氣查詢";
+  const shareData = { title, text, url: location.href };
 
   if (navigator.share) {
     try {
@@ -1431,18 +1465,21 @@ function clearTravelSummary() {
   els.travelSummary.classList.add("hidden");
   if (els.travelDays) els.travelDays.innerHTML = "";
   travelFoodItems = [];
+  travelSightItems = [];
+  travelShareContext = null;
 }
 
-function renderTravelSummary(cityName, tripDays, foodError = "") {
+function renderTravelSummary(cityName, tripDays, { foodError = "", sightError = "" } = {}) {
   if (!els.travelSummary || !els.travelDays) return;
 
   travelFoodItems = [];
+  travelSightItems = [];
   if (els.travelTitle) {
     els.travelTitle.textContent = `行程摘要 · ${cityName}`;
   }
 
   els.travelDays.innerHTML = tripDays
-    .map((day, index) => {
+    .map((day) => {
       if (day.outOfRange) {
         return `
         <article class="travel-day travel-day-muted">
@@ -1467,17 +1504,37 @@ function renderTravelSummary(cityName, tripDays, foodError = "") {
         foodHtml = `
           <button
             type="button"
-            class="travel-food-btn"
+            class="travel-place-btn travel-food-btn"
             data-travel-food-index="${foodIndex}"
             aria-label="在 Google Maps 開啟${day.restaurant.name}"
           >
-            <span class="travel-food-name">${day.restaurant.name}</span>
-            <span class="travel-food-meta">★ ${day.restaurant.rating.toFixed(1)} · ${day.restaurant.desc}</span>
+            <span class="travel-place-name">${day.restaurant.name}</span>
+            <span class="travel-place-meta">★ ${day.restaurant.rating.toFixed(1)} · ${day.restaurant.desc}</span>
           </button>`;
       } else if (foodError) {
         foodHtml = `<p class="travel-day-note">${foodError}</p>`;
       } else {
         foodHtml = `<p class="travel-day-note">附近暫無 4 顆星以上餐廳</p>`;
+      }
+
+      let sightHtml = "";
+      if (day.sight) {
+        travelSightItems.push(day.sight);
+        const sightIndex = travelSightItems.length - 1;
+        sightHtml = `
+          <button
+            type="button"
+            class="travel-place-btn travel-sight-btn"
+            data-travel-sight-index="${sightIndex}"
+            aria-label="在 Google Maps 開啟${day.sight.name}"
+          >
+            <span class="travel-place-name">${day.sight.name}</span>
+            <span class="travel-place-meta">★ ${day.sight.rating.toFixed(1)} · ${day.sight.desc}</span>
+          </button>`;
+      } else if (sightError) {
+        sightHtml = `<p class="travel-day-note">${sightError}</p>`;
+      } else {
+        sightHtml = `<p class="travel-day-note">附近暫無 4 顆星以上景點</p>`;
       }
 
       return `
@@ -1496,7 +1553,11 @@ function renderTravelSummary(cityName, tripDays, foodError = "") {
         </div>
         <div class="travel-row">
           <span class="travel-row-label">美食</span>
-          <div class="travel-food-wrap">${foodHtml}</div>
+          <div class="travel-place-wrap">${foodHtml}</div>
+        </div>
+        <div class="travel-row">
+          <span class="travel-row-label">景點</span>
+          <div class="travel-place-wrap">${sightHtml}</div>
         </div>
       </article>`;
     })
@@ -1527,14 +1588,21 @@ async function enterTravelMode(parsed) {
 
     const weather = weatherResult.value;
     let restaurants = [];
+    let sights = [];
     let foodError = "";
+    let sightError = "";
 
     if (placesResult.status === "fulfilled") {
       restaurants = placesResult.value.food;
+      sights = placesResult.value.sights;
+      foodError = placesResult.value.foodError || "";
+      sightError = placesResult.value.sightError || "";
     } else if (placesResult.reason?.message === "NO_API_KEY") {
       foodError = "請設定 Google Places API Key 以顯示美食推薦";
+      sightError = "請設定 Google Places API Key 以顯示景點推薦";
     } else {
       foodError = "無法載入美食推薦";
+      sightError = "無法載入景點推薦";
     }
 
     renderWeather(geoCity, weather);
@@ -1565,13 +1633,21 @@ async function enterTravelMode(parsed) {
         label: weatherLabel(wx.code),
         outfit: buildTravelOutfitSuggestions(maxTemp, minTemp, wx.code),
         restaurant: restaurants.length ? restaurants[index % restaurants.length] : null,
+        sight: sights.length ? sights[index % sights.length] : null,
       };
     });
 
-    renderTravelSummary(geoCity.name, tripDays, foodError);
-
     const startMd = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
     const endMd = `${endDate.getMonth() + 1}/${endDate.getDate()}`;
+
+    renderTravelSummary(geoCity.name, tripDays, { foodError, sightError });
+
+    travelShareContext = {
+      cityName: geoCity.name,
+      dateRange: `${startMd}–${endMd}`,
+      tripDays,
+    };
+
     els.searchHint.textContent = `旅遊行程：${geoCity.name}（${startMd}–${endMd}）`;
     els.cityInput.value = rawInput;
 
@@ -2211,10 +2287,27 @@ function setPlacesCache(latitude, longitude, food, sights, cityName = "") {
   };
 }
 
+function resolvePlaceFetchError(err, kind) {
+  if (!err) return "";
+  if (err.message === "NO_API_KEY") {
+    return kind === "food"
+      ? "請設定 Google Places API Key 以顯示美食推薦"
+      : "請設定 Google Places API Key 以顯示景點推薦";
+  }
+  return placesErrorMessage(err, kind === "food" ? "美食" : "景點");
+}
+
 async function fetchNearbyRecommendations(latitude, longitude, cityName = "") {
   const label = cityName || currentCity?.name || "";
   const cached = getPlacesCache(latitude, longitude, label);
-  if (cached) return cached;
+  if (cached) {
+    return {
+      food: cached.food,
+      sights: cached.sights,
+      foodError: "",
+      sightError: "",
+    };
+  }
 
   const [foodResult, sightsResult] = await Promise.allSettled([
     searchFoodOnly(latitude, longitude, label),
@@ -2224,6 +2317,12 @@ async function fetchNearbyRecommendations(latitude, longitude, cityName = "") {
   const result = {
     food: foodResult.status === "fulfilled" ? foodResult.value : [],
     sights: sightsResult.status === "fulfilled" ? sightsResult.value : [],
+    foodError:
+      foodResult.status === "rejected" ? resolvePlaceFetchError(foodResult.reason, "food") : "",
+    sightError:
+      sightsResult.status === "rejected"
+        ? resolvePlaceFetchError(sightsResult.reason, "sight")
+        : "",
   };
 
   setPlacesCache(latitude, longitude, result.food, result.sights, label);
@@ -2645,10 +2744,17 @@ function bindEvents() {
 
   if (els.travelDays) {
     els.travelDays.addEventListener("click", (e) => {
-      const row = e.target.closest("[data-travel-food-index]");
-      if (!row) return;
-      const item = travelFoodItems[Number(row.dataset.travelFoodIndex)];
-      if (item) openFoodOnMaps(item);
+      const foodRow = e.target.closest("[data-travel-food-index]");
+      if (foodRow) {
+        const item = travelFoodItems[Number(foodRow.dataset.travelFoodIndex)];
+        if (item) openFoodOnMaps(item);
+        return;
+      }
+
+      const sightRow = e.target.closest("[data-travel-sight-index]");
+      if (!sightRow) return;
+      const item = travelSightItems[Number(sightRow.dataset.travelSightIndex)];
+      if (item) openSightOnMaps(item);
     });
   }
 

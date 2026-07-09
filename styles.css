@@ -614,12 +614,15 @@ body {
   color: var(--text-mid);
 }
 
-.travel-food-wrap {
+.travel-food-wrap,
+.travel-place-wrap {
   flex: 1;
   min-width: 0;
 }
 
-.travel-food-btn {
+.travel-food-btn,
+.travel-sight-btn,
+.travel-place-btn {
   width: 100%;
   border: none;
   background: #f8f8f8;
@@ -630,19 +633,25 @@ body {
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
-.travel-food-btn:hover {
+.travel-food-btn:hover,
+.travel-sight-btn:hover,
+.travel-place-btn:hover {
   background: #f0f0f0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.travel-food-name {
+.travel-food-name,
+.travel-sight-name,
+.travel-place-name {
   display: block;
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
 }
 
-.travel-food-meta {
+.travel-food-meta,
+.travel-sight-meta,
+.travel-place-meta {
   display: block;
   margin-top: 0.2rem;
   font-size: 0.78rem;
