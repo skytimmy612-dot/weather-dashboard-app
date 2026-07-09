@@ -22,6 +22,9 @@ const MAX_FORECAST_DAYS = 16;
 const MAX_TRIP_DAYS = 16;
 const TRAVEL_DATE_PATTERN =
   /(\d{1,2})\s*[\/／]\s*(\d{1,2})\s*[-–—〜～~－至到]\s*(\d{1,2})\s*[\/／]\s*(\d{1,2})/;
+const AUTOCOMPLETE_DEBOUNCE_MS = 300;
+const AUTOCOMPLETE_MIN_LEN = 1;
+const AUTOCOMPLETE_MAX = 5;
 
 const WEATHER_TEXT = {
   0: "晴朗",
@@ -165,6 +168,7 @@ const $ = (id) => document.getElementById(id);
 
 const els = {
   cityInput: $("cityInput"),
+  citySuggestions: $("citySuggestions"),
   searchForm: $("searchForm"),
   searchHint: $("searchHint"),
   currentTemp: $("currentTemp"),
@@ -209,6 +213,11 @@ let placesLoadToken = 0;
 let placesCache = { key: "", food: [], sights: [], expiresAt: 0 };
 let travelFoodItems = [];
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
+let autocompleteItems = [];
+let autocompleteActiveIndex = -1;
+let autocompleteToken = 0;
+let autocompleteTimer = null;
+let autocompleteBlurTimer = null;
 
 function setLoading(on) {
   els.loading.classList.toggle("hidden", !on);
@@ -912,6 +921,304 @@ async function fetchWithOptions(url, options = {}, ms = 12000) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function extractAutocompleteTerm(input) {
+  const trimmed = String(input ?? "").trim();
+  if (!trimmed) return { term: "", travel: null };
+
+  const match = trimmed.match(TRAVEL_DATE_PATTERN);
+  if (!match) return { term: trimmed, travel: null };
+
+  const matchStr = match[0];
+  const idx = trimmed.indexOf(matchStr);
+  let cityPart = trimmed.replace(matchStr, "").replace(/\s+/g, " ").trim();
+  let layout = "after";
+
+  if (!cityPart && idx > 0) {
+    cityPart = trimmed.slice(0, idx).replace(/\s+/g, " ").trim();
+    layout = "before";
+  }
+
+  return {
+    term: cityPart,
+    travel: { matchStr, layout },
+  };
+}
+
+function rebuildInputFromSuggestion(label, travel) {
+  if (!travel) return label;
+  if (travel.layout === "after") return `${travel.matchStr} ${label}`.trim();
+  return `${label} ${travel.matchStr}`.trim();
+}
+
+function shouldFilterTaiwanSuggestions(term) {
+  return isTaiwanCityName(term) || /[市縣區]/.test(term);
+}
+
+function mergeCitySuggestions(meteoResults, photonResults, term) {
+  const termNorm = normalizePlaceName(term);
+  const filterTaiwan = shouldFilterTaiwanSuggestions(term);
+  const seen = new Set();
+  const items = [];
+
+  const add = (item) => {
+    const key = normalizePlaceName(item.label);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    items.push(item);
+  };
+
+  for (const result of meteoResults) {
+    if (
+      filterTaiwan &&
+      result.country_code !== "TW" &&
+      !isInTaiwan(result.latitude, result.longitude)
+    ) {
+      continue;
+    }
+    const sublabel = [result.admin1, result.country_code].filter(Boolean).join(" · ");
+    add({
+      label: result.name,
+      sublabel,
+      latitude: result.latitude,
+      longitude: result.longitude,
+      population: result.population ?? 0,
+    });
+  }
+
+  for (const result of photonResults) {
+    if (filterTaiwan && !isInTaiwan(result.latitude, result.longitude)) continue;
+    const props = result.props ?? {};
+    const primary = String(result.name).split(",")[0].trim() || result.name;
+    const secondary =
+      String(result.name).includes(",")
+        ? String(result.name).split(",").slice(1).join(",").trim()
+        : props.state || props.country || "";
+    add({
+      label: primary,
+      sublabel: secondary,
+      latitude: result.latitude,
+      longitude: result.longitude,
+      population: 0,
+    });
+  }
+
+  for (const [name, data] of Object.entries(FALLBACK_CITIES)) {
+    const nameNorm = normalizePlaceName(name);
+    if (nameNorm.includes(termNorm) || termNorm.includes(nameNorm)) {
+      add({
+        label: data.name,
+        sublabel: "台灣",
+        latitude: data.latitude,
+        longitude: data.longitude,
+        population: 999999,
+      });
+    }
+  }
+
+  items.sort((a, b) => {
+    const aNorm = normalizePlaceName(a.label);
+    const bNorm = normalizePlaceName(b.label);
+    const aExact = aNorm === termNorm ? 1 : 0;
+    const bExact = bNorm === termNorm ? 1 : 0;
+    if (bExact !== aExact) return bExact - aExact;
+    const aStarts = aNorm.startsWith(termNorm) ? 1 : 0;
+    const bStarts = bNorm.startsWith(termNorm) ? 1 : 0;
+    if (bStarts !== aStarts) return bStarts - aStarts;
+    if (b.population !== a.population) return b.population - a.population;
+    if (currentCity?.latitude != null && currentCity?.longitude != null) {
+      return (
+        haversineKm(currentCity.latitude, currentCity.longitude, a.latitude, a.longitude) -
+        haversineKm(currentCity.latitude, currentCity.longitude, b.latitude, b.longitude)
+      );
+    }
+    return 0;
+  });
+
+  return items.slice(0, AUTOCOMPLETE_MAX);
+}
+
+async function fetchCitySuggestions(term) {
+  const [meteoResult, photonResult] = await Promise.allSettled([
+    geocodeByName(term, "zh"),
+    photonGeocode(term, currentCity),
+  ]);
+
+  const meteo = meteoResult.status === "fulfilled" ? meteoResult.value : [];
+  const photon = photonResult.status === "fulfilled" ? photonResult.value : [];
+  return mergeCitySuggestions(meteo, photon, term);
+}
+
+function setAutocompleteExpanded(expanded) {
+  if (els.cityInput) els.cityInput.setAttribute("aria-expanded", String(expanded));
+}
+
+function hideCitySuggestions() {
+  if (!els.citySuggestions) return;
+  autocompleteItems = [];
+  autocompleteActiveIndex = -1;
+  els.citySuggestions.classList.add("hidden");
+  els.citySuggestions.innerHTML = "";
+  setAutocompleteExpanded(false);
+}
+
+function renderCitySuggestions(items, activeIndex = -1) {
+  if (!els.citySuggestions) return;
+
+  autocompleteItems = items;
+  autocompleteActiveIndex = activeIndex;
+
+  if (!items.length) {
+    els.citySuggestions.innerHTML =
+      '<li class="city-suggestion-status" role="presentation">找不到相符地名</li>';
+    els.citySuggestions.classList.remove("hidden");
+    setAutocompleteExpanded(true);
+    return;
+  }
+
+  els.citySuggestions.innerHTML = items
+    .map(
+      (item, index) => `
+      <li
+        class="city-suggestion-item${index === activeIndex ? " active" : ""}"
+        role="option"
+        aria-selected="${index === activeIndex}"
+        data-suggestion-index="${index}"
+        id="citySuggestion-${index}"
+      >
+        <span class="city-suggestion-label">${item.label}</span>
+        ${item.sublabel ? `<span class="city-suggestion-sublabel">${item.sublabel}</span>` : ""}
+      </li>`
+    )
+    .join("");
+  els.citySuggestions.classList.remove("hidden");
+  setAutocompleteExpanded(true);
+
+  if (activeIndex >= 0 && els.cityInput) {
+    els.cityInput.setAttribute("aria-activedescendant", `citySuggestion-${activeIndex}`);
+  } else if (els.cityInput) {
+    els.cityInput.removeAttribute("aria-activedescendant");
+  }
+}
+
+function showAutocompleteLoading() {
+  if (!els.citySuggestions) return;
+  els.citySuggestions.innerHTML =
+    '<li class="city-suggestion-status" role="presentation">搜尋地名中…</li>';
+  els.citySuggestions.classList.remove("hidden");
+  setAutocompleteExpanded(true);
+}
+
+async function refreshCitySuggestions() {
+  const parsed = extractAutocompleteTerm(els.cityInput?.value ?? "");
+  const term = parsed.term.trim();
+
+  if (term.length < AUTOCOMPLETE_MIN_LEN) {
+    hideCitySuggestions();
+    return;
+  }
+
+  const token = ++autocompleteToken;
+  showAutocompleteLoading();
+
+  try {
+    const items = await fetchCitySuggestions(term);
+    if (token !== autocompleteToken) return;
+    renderCitySuggestions(items, -1);
+  } catch {
+    if (token !== autocompleteToken) return;
+    hideCitySuggestions();
+  }
+}
+
+function scheduleCitySuggestions() {
+  clearTimeout(autocompleteTimer);
+  autocompleteTimer = setTimeout(refreshCitySuggestions, AUTOCOMPLETE_DEBOUNCE_MS);
+}
+
+function applyCitySuggestion(suggestion) {
+  if (!suggestion) return;
+
+  const parsed = extractAutocompleteTerm(els.cityInput.value);
+  const inputValue = rebuildInputFromSuggestion(suggestion.label, parsed.travel);
+  hideCitySuggestions();
+  els.cityInput.value = inputValue;
+
+  const travelQuery = parseTravelQuery(inputValue);
+  if (travelQuery) {
+    enterTravelMode(travelQuery);
+    return;
+  }
+
+  clearTravelSummary();
+  queryCity(inputValue);
+}
+
+function bindAutocompleteEvents() {
+  if (!els.cityInput || !els.citySuggestions) return;
+
+  els.cityInput.addEventListener("input", () => {
+    scheduleCitySuggestions();
+  });
+
+  els.cityInput.addEventListener("focus", () => {
+    clearTimeout(autocompleteBlurTimer);
+    const parsed = extractAutocompleteTerm(els.cityInput.value);
+    if (parsed.term.trim().length >= AUTOCOMPLETE_MIN_LEN) {
+      scheduleCitySuggestions();
+    }
+  });
+
+  els.cityInput.addEventListener("blur", () => {
+    autocompleteBlurTimer = setTimeout(hideCitySuggestions, 150);
+  });
+
+  els.cityInput.addEventListener("keydown", (e) => {
+    const visible = !els.citySuggestions.classList.contains("hidden");
+
+    if (e.key === "Escape") {
+      if (visible) {
+        e.preventDefault();
+        hideCitySuggestions();
+      }
+      return;
+    }
+
+    if (!visible || !autocompleteItems.length) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next =
+        autocompleteActiveIndex < autocompleteItems.length - 1
+          ? autocompleteActiveIndex + 1
+          : 0;
+      renderCitySuggestions(autocompleteItems, next);
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const next =
+        autocompleteActiveIndex > 0
+          ? autocompleteActiveIndex - 1
+          : autocompleteItems.length - 1;
+      renderCitySuggestions(autocompleteItems, next);
+      return;
+    }
+
+    if (e.key === "Enter" && autocompleteActiveIndex >= 0) {
+      e.preventDefault();
+      applyCitySuggestion(autocompleteItems[autocompleteActiveIndex]);
+    }
+  });
+
+  els.citySuggestions.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const row = e.target.closest("[data-suggestion-index]");
+    if (!row) return;
+    applyCitySuggestion(autocompleteItems[Number(row.dataset.suggestionIndex)]);
+  });
 }
 
 function resolveTaiwanCityCoords(result, query) {
@@ -2263,8 +2570,11 @@ function toggleSightList() {
 }
 
 function bindEvents() {
+  bindAutocompleteEvents();
+
   els.searchForm.addEventListener("submit", (e) => {
     e.preventDefault();
+    hideCitySuggestions();
     const input = els.cityInput.value.trim();
     if (!input) return;
 
