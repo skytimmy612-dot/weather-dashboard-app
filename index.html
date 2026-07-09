@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="天氣" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=20260731" />
+  <link rel="stylesheet" href="styles.css?v=20260732" />
 </head>
 <body>
   <div class="phone">
@@ -72,10 +72,17 @@
       </section>
 
       <section class="card card-daily" aria-labelledby="dailyTitle">
-        <h2 class="card-title" id="dailyTitle">
-          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="1.6"/><line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          未來 5 日預報
-        </h2>
+        <div class="daily-header">
+          <h2 class="card-title" id="dailyTitle">
+            <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="1.6"/><line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            未來 5 日預報
+          </h2>
+          <div class="forecast-toggle" role="group" aria-label="預報天數">
+            <button type="button" class="forecast-toggle-btn active" data-days="5">5日</button>
+            <button type="button" class="forecast-toggle-btn" data-days="7">7日</button>
+            <button type="button" class="forecast-toggle-btn" data-days="16">全部</button>
+          </div>
+        </div>
         <div class="daily" id="dailyForecast"></div>
       </section>
 
@@ -141,6 +148,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260731" defer></script>
+  <script src="app.js?v=20260732" defer></script>
 </body>
 </html>

@@ -17,8 +17,11 @@ const PLACES_MAX_RESULTS = 20;
 
 const STORAGE_KEY = "weather-dashboard-city";
 const FAVORITES_KEY = "weather-dashboard-favorites";
+const FORECAST_DAYS_KEY = "weather-dashboard-forecast-days";
 const MAX_FAVORITES = 5;
 const MAX_FORECAST_DAYS = 16;
+const DEFAULT_DAILY_DISPLAY = 5;
+const DAILY_DISPLAY_OPTIONS = [5, 7, 16];
 const MAX_TRIP_DAYS = 16;
 const TRAVEL_DATE_PATTERN =
   /(\d{1,2})\s*[\/／]\s*(\d{1,2})\s*[-–—〜～~－至到]\s*(\d{1,2})\s*[\/／]\s*(\d{1,2})/;
@@ -183,6 +186,8 @@ const els = {
   favoriteChips: $("favoriteChips"),
   hourlyForecast: $("hourlyForecast"),
   dailyForecast: $("dailyForecast"),
+  dailyTitle: $("dailyTitle"),
+  forecastToggle: document.querySelector(".forecast-toggle"),
   outfitGrid: $("outfitGrid"),
   foodList: $("foodList"),
   viewAllFood: $("viewAllFood"),
@@ -214,6 +219,9 @@ let placesCache = { key: "", food: [], sights: [], expiresAt: 0 };
 let travelFoodItems = [];
 let travelSightItems = [];
 let travelShareContext = null;
+let dailyDisplayDays = DEFAULT_DAILY_DISPLAY;
+let currentWeatherDaily = null;
+let travelDailyOverride = null;
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 let autocompleteItems = [];
 let autocompleteActiveIndex = -1;
@@ -555,6 +563,8 @@ function clearWeatherOnError() {
   els.weatherIcon.innerHTML = iconSvg("cloud");
   els.hourlyForecast.innerHTML = "";
   els.dailyForecast.innerHTML = "";
+  els.dailyForecast.classList.remove("is-scroll");
+  currentWeatherDaily = null;
   els.rainAlert.classList.add("hidden");
   els.rainAlert.innerHTML = "";
   if (els.weatherFx) {
@@ -1460,6 +1470,28 @@ function buildTravelOutfitSuggestions(maxTemp, minTemp, code) {
   return items.slice(0, 3);
 }
 
+function loadDailyDisplayPreference() {
+  try {
+    const raw = localStorage.getItem(FORECAST_DAYS_KEY);
+    const days = Number(raw);
+    if (DAILY_DISPLAY_OPTIONS.includes(days)) {
+      dailyDisplayDays = days;
+    }
+  } catch {
+    dailyDisplayDays = DEFAULT_DAILY_DISPLAY;
+  }
+}
+
+function saveDailyDisplayPreference(days) {
+  dailyDisplayDays = days;
+  localStorage.setItem(FORECAST_DAYS_KEY, String(days));
+}
+
+function getEffectiveDailyDisplayDays() {
+  if (travelDailyOverride != null) return travelDailyOverride;
+  return dailyDisplayDays;
+}
+
 function clearTravelSummary() {
   if (!els.travelSummary) return;
   els.travelSummary.classList.add("hidden");
@@ -1467,6 +1499,10 @@ function clearTravelSummary() {
   travelFoodItems = [];
   travelSightItems = [];
   travelShareContext = null;
+  travelDailyOverride = null;
+  if (currentWeatherDaily) {
+    renderDaily(currentWeatherDaily);
+  }
 }
 
 function renderTravelSummary(cityName, tripDays, { foodError = "", sightError = "" } = {}) {
@@ -1575,10 +1611,9 @@ async function enterTravelMode(parsed) {
   try {
     const geoCity = await geocodeCity(city);
     const tripDates = buildTripDates(startDate, endDate);
-    const forecastDays = calcForecastDays(endDate);
 
     const [weatherResult, placesResult] = await Promise.allSettled([
-      fetchWeather(geoCity.latitude, geoCity.longitude, forecastDays),
+      fetchWeather(geoCity.latitude, geoCity.longitude, MAX_FORECAST_DAYS),
       fetchNearbyRecommendations(geoCity.latitude, geoCity.longitude, geoCity.name),
     ]);
 
@@ -1641,6 +1676,9 @@ async function enterTravelMode(parsed) {
     const endMd = `${endDate.getMonth() + 1}/${endDate.getDate()}`;
 
     renderTravelSummary(geoCity.name, tripDays, { foodError, sightError });
+
+    travelDailyOverride = Math.min(tripDates.length, MAX_FORECAST_DAYS);
+    renderDaily(weather.daily, travelDailyOverride);
 
     travelShareContext = {
       cityName: geoCity.name,
@@ -1707,7 +1745,7 @@ async function queryByCoords(latitude, longitude) {
   clearTravelSummary();
   try {
     const [weather, placeName] = await Promise.all([
-      fetchWeather(latitude, longitude),
+      fetchWeather(latitude, longitude, MAX_FORECAST_DAYS),
       reverseGeocode(latitude, longitude),
     ]);
     const city = { name: placeName ?? "我的位置", latitude, longitude };
@@ -1729,7 +1767,7 @@ async function querySavedCity(city) {
   setLoading(true);
   clearTravelSummary();
   try {
-    const weather = await fetchWeather(city.latitude, city.longitude);
+    const weather = await fetchWeather(city.latitude, city.longitude, MAX_FORECAST_DAYS);
     renderWeather(city, weather);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(city));
   } catch (err) {
@@ -2556,29 +2594,59 @@ function renderHourly(hourly) {
   }).join("");
 }
 
-function formatDayLabel(dateStr, index) {
+function formatDayLabel(dateStr, index, displayDays = DEFAULT_DAILY_DISPLAY) {
   if (index === 0) return "今天";
   if (index === 1) return "明天";
-  return new Date(`${dateStr}T12:00:00`).toLocaleDateString("zh-TW", { weekday: "short" });
+  const date = new Date(`${dateStr}T12:00:00`);
+  if (displayDays > 5 && index >= 5) {
+    const md = date.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" });
+    const weekday = date.toLocaleDateString("zh-TW", { weekday: "short" });
+    return `${md}（${weekday}）`;
+  }
+  return date.toLocaleDateString("zh-TW", { weekday: "short" });
 }
 
-function renderDaily(daily) {
+function updateDailyTitle(count) {
+  if (!els.dailyTitle) return;
+  const icon = els.dailyTitle.querySelector(".title-icon");
+  const iconHtml = icon ? icon.outerHTML : "";
+  els.dailyTitle.innerHTML = `${iconHtml}未來 ${count} 日預報`;
+}
+
+function updateForecastToggleActive(activeDays) {
+  if (!els.forecastToggle) return;
+  els.forecastToggle.querySelectorAll(".forecast-toggle-btn").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.days) === activeDays);
+  });
+}
+
+function renderDaily(daily, displayDays = getEffectiveDailyDisplayDays()) {
+  currentWeatherDaily = daily;
   if (!daily?.time?.length) {
     els.dailyForecast.innerHTML = "";
+    els.dailyForecast.classList.remove("is-scroll");
     return;
   }
 
-  els.dailyForecast.innerHTML = daily.time.slice(0, 5).map((dateStr, index) => {
+  const count = Math.min(displayDays, daily.time.length);
+  els.dailyForecast.classList.toggle("is-scroll", displayDays > 5);
+
+  els.dailyForecast.innerHTML = daily.time.slice(0, count).map((dateStr, index) => {
     const code = daily.weather_code[index];
     const maxTemp = Math.round(daily.temperature_2m_max[index]);
     const minTemp = Math.round(daily.temperature_2m_min[index]);
     return `
       <article class="daily-item">
-        <p class="label">${formatDayLabel(dateStr, index)}</p>
+        <p class="label">${formatDayLabel(dateStr, index, displayDays)}</p>
         <div class="mini-icon">${iconSvg("mini", code)}</div>
         <p class="temp-range"><span class="temp-high">${maxTemp}°</span> / <span class="temp-low">${minTemp}°</span></p>
       </article>`;
   }).join("");
+
+  updateDailyTitle(count);
+  updateForecastToggleActive(
+    DAILY_DISPLAY_OPTIONS.includes(displayDays) ? displayDays : dailyDisplayDays
+  );
 }
 
 function setSearchHint(cityName, isLive = true) {
@@ -2628,7 +2696,7 @@ async function queryCity(cityName) {
   clearTravelSummary();
   try {
     const city = await geocodeCity(cityName);
-    const weather = await fetchWeather(city.latitude, city.longitude);
+    const weather = await fetchWeather(city.latitude, city.longitude, MAX_FORECAST_DAYS);
     renderWeather(city, weather);
     localStorage.setItem(
       STORAGE_KEY,
@@ -2742,6 +2810,18 @@ function bindEvents() {
     });
   }
 
+  if (els.forecastToggle) {
+    els.forecastToggle.addEventListener("click", (e) => {
+      const btn = e.target.closest(".forecast-toggle-btn");
+      if (!btn || !currentWeatherDaily) return;
+      const days = Number(btn.dataset.days);
+      if (!DAILY_DISPLAY_OPTIONS.includes(days)) return;
+      travelDailyOverride = null;
+      saveDailyDisplayPreference(days);
+      renderDaily(currentWeatherDaily, days);
+    });
+  }
+
   if (els.travelDays) {
     els.travelDays.addEventListener("click", (e) => {
       const foodRow = e.target.closest("[data-travel-food-index]");
@@ -2777,6 +2857,7 @@ function registerServiceWorker() {
 async function init() {
   bindEvents();
   registerServiceWorker();
+  loadDailyDisplayPreference();
   setSearchHint(DEFAULT_CITY, false);
   renderFavorites();
   updateFavoriteBtn();
@@ -2803,7 +2884,7 @@ async function init() {
       const { name, latitude, longitude } = JSON.parse(saved);
       currentCity = { name, latitude, longitude };
       setLoading(true);
-      const weather = await fetchWeather(latitude, longitude);
+      const weather = await fetchWeather(latitude, longitude, MAX_FORECAST_DAYS);
       renderWeather({ name, latitude, longitude }, weather);
       setError("");
       return;
