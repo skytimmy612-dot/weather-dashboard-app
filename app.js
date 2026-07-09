@@ -24,7 +24,7 @@ const DEFAULT_DAILY_DISPLAY = 5;
 const DAILY_DISPLAY_OPTIONS = [5, 7, 16];
 const MAX_TRIP_DAYS = 16;
 const TRAVEL_DATE_PATTERN =
-  /(\d{1,2})\s*[\/／]\s*(\d{1,2})\s*[-–—〜～~－至到]\s*(\d{1,2})\s*[\/／]\s*(\d{1,2})/;
+  /(\d{1,2})\s*[\/／]\s*(\d{1,2})\s*[-–—〜～~－至到]\s*\/?\s*(\d{1,2})\s*[\/／]\s*(\d{1,2})/;
 const AUTOCOMPLETE_DEBOUNCE_MS = 300;
 const AUTOCOMPLETE_MIN_LEN = 1;
 const AUTOCOMPLETE_MAX = 5;
@@ -497,7 +497,10 @@ function buildTravelShareText(ctx) {
   for (const day of ctx.tripDays) {
     lines.push(day.dateLabel);
     if (day.outOfRange) {
-      lines.push("超出預報範圍");
+      const cutoff = ctx.forecastLastDate
+        ? formatForecastCutoffLabel(ctx.forecastLastDate)
+        : `${MAX_FORECAST_DAYS} 天`;
+      lines.push(`超出預報範圍（可預報至 ${cutoff}）`);
       lines.push("");
       continue;
     }
@@ -1441,6 +1444,22 @@ function dateToKey(date) {
   return `${y}-${m}-${d}`;
 }
 
+function getForecastDateBounds(daily) {
+  const times = daily?.time ?? [];
+  return { first: times[0] ?? null, last: times.at(-1) ?? null };
+}
+
+function isDateWithinForecast(date, lastDateStr) {
+  if (!lastDateStr) return false;
+  return dateToKey(date) <= lastDateStr;
+}
+
+function formatForecastCutoffLabel(dateStr) {
+  if (!dateStr) return "";
+  const [, month, day] = dateStr.split("-");
+  return `${Number(month)}/${Number(day)}`;
+}
+
 function formatTripDateLabel(date) {
   const md = `${date.getMonth() + 1}/${date.getDate()}`;
   const weekday = date.toLocaleDateString("zh-TW", { weekday: "short" });
@@ -1505,7 +1524,11 @@ function clearTravelSummary() {
   }
 }
 
-function renderTravelSummary(cityName, tripDays, { foodError = "", sightError = "" } = {}) {
+function renderTravelSummary(
+  cityName,
+  tripDays,
+  { foodError = "", sightError = "", forecastLastDate = "" } = {}
+) {
   if (!els.travelSummary || !els.travelDays) return;
 
   travelFoodItems = [];
@@ -1514,13 +1537,17 @@ function renderTravelSummary(cityName, tripDays, { foodError = "", sightError = 
     els.travelTitle.textContent = `行程摘要 · ${cityName}`;
   }
 
+  const forecastCutoff = forecastLastDate
+    ? formatForecastCutoffLabel(forecastLastDate)
+    : `${MAX_FORECAST_DAYS} 天`;
+
   els.travelDays.innerHTML = tripDays
     .map((day) => {
       if (day.outOfRange) {
         return `
         <article class="travel-day travel-day-muted">
           <h3 class="travel-day-title">${day.dateLabel}</h3>
-          <p class="travel-day-note">超出預報範圍（僅提供近 ${MAX_FORECAST_DAYS} 天）</p>
+          <p class="travel-day-note">此日期超出預報範圍（可預報至 ${forecastCutoff}）</p>
         </article>`;
       }
 
@@ -1642,6 +1669,29 @@ async function enterTravelMode(parsed) {
 
     renderWeather(geoCity, weather);
 
+    const forecastLastDate = getForecastDateBounds(weather.daily).last;
+    const startMd = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
+    const endMd = `${endDate.getMonth() + 1}/${endDate.getDate()}`;
+
+    if (!isDateWithinForecast(startDate, forecastLastDate)) {
+      const forecastLastLabel = formatForecastCutoffLabel(forecastLastDate);
+      setError(
+        `行程起始日（${startMd}）超出可預報範圍。Open-Meteo 最多提供自今天起 ${MAX_FORECAST_DAYS} 天，目前可預報至 ${forecastLastLabel}。`
+      );
+      clearTravelSummary();
+      els.searchHint.textContent = `旅遊行程：${geoCity.name}（${startMd}–${endMd}）— 日期超出預報範圍`;
+      els.cityInput.value = rawInput;
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          name: geoCity.name,
+          latitude: geoCity.latitude,
+          longitude: geoCity.longitude,
+        })
+      );
+      return;
+    }
+
     const dailyMap = buildDailyWeatherMap(weather.daily);
     const tripDays = tripDates.map((date, index) => {
       const key = dateToKey(date);
@@ -1672,10 +1722,11 @@ async function enterTravelMode(parsed) {
       };
     });
 
-    const startMd = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
-    const endMd = `${endDate.getMonth() + 1}/${endDate.getDate()}`;
-
-    renderTravelSummary(geoCity.name, tripDays, { foodError, sightError });
+    renderTravelSummary(geoCity.name, tripDays, {
+      foodError,
+      sightError,
+      forecastLastDate,
+    });
 
     travelDailyOverride = Math.min(tripDates.length, MAX_FORECAST_DAYS);
     renderDaily(weather.daily, travelDailyOverride);
@@ -1684,6 +1735,7 @@ async function enterTravelMode(parsed) {
       cityName: geoCity.name,
       dateRange: `${startMd}–${endMd}`,
       tripDays,
+      forecastLastDate,
     };
 
     els.searchHint.textContent = `旅遊行程：${geoCity.name}（${startMd}–${endMd}）`;
