@@ -13,6 +13,7 @@ const PLACES_FILTER_RADIUS = 15000;
 const DISTRICT_SEARCH_RADIUS = 15000;
 const DISTRICT_FILTER_RADIUS = 15000;
 const PLACES_CACHE_TTL_MS = 30 * 60 * 1000;
+const GEOCODE_CACHE_TTL_MS = 10 * 60 * 1000;
 const PLACES_MAX_RESULTS = 20;
 
 const STORAGE_KEY = "weather-dashboard-city";
@@ -125,11 +126,12 @@ const PLACE_ALIASES = {
   馬德里: "Madrid",
   阿姆斯特丹: "Amsterdam",
   雷克雅維克: "Reykjavik",
-  沖縄: "那覇",
-  沖繩: "那覇",
-  冲绳: "那覇",
-  那霸: "那覇",
-  那霸市: "那覇",
+  沖縄: "Naha",
+  沖繩: "Naha",
+  冲绳: "Naha",
+  那霸: "Naha",
+  那霸市: "Naha",
+  那覇: "Naha",
   北海道: "Hokkaido",
   京都: "Kyoto",
   大阪: "Osaka",
@@ -166,6 +168,24 @@ const FALLBACK_CITIES = {
   台中市: { name: "台中市", latitude: 24.1477, longitude: 120.6736 },
   台南市: { name: "台南市", latitude: 22.9999, longitude: 120.2269 },
 };
+
+const OVERSEAS_FALLBACK_CITIES = {
+  那霸: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
+  那覇: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
+  Naha: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
+  沖繩: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
+  沖縄: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
+};
+
+const OKINAWA_SEARCH_TERMS = new Set([
+  "Naha",
+  "那霸",
+  "那覇",
+  "沖繩",
+  "沖縄",
+  "冲绳",
+  "Okinawa",
+]);
 
 const $ = (id) => document.getElementById(id);
 
@@ -216,6 +236,7 @@ let sightItems = [];
 let displayedSightItems = [];
 let placesLoadToken = 0;
 let placesCache = { key: "", food: [], sights: [], expiresAt: 0 };
+let geocodeCache = { key: "", suggestions: [], expiresAt: 0 };
 let travelFoodItems = [];
 let travelSightItems = [];
 let travelShareContext = null;
@@ -710,7 +731,37 @@ function normalizePlaceName(name) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "")
-    .replace(/臺/g, "台");
+    .replace(/臺/g, "台")
+    .replace(/覇/g, "霸");
+}
+
+function isOkinawaSearchTerm(name) {
+  return citySearchVariants(name).some((variant) => OKINAWA_SEARCH_TERMS.has(variant));
+}
+
+function placeNameMatchesQuery(displayName, query) {
+  const queryNorm = normalizePlaceName(query);
+  const primary = normalizePlaceName(String(displayName ?? "").split(",")[0]);
+  const full = normalizePlaceName(displayName);
+  return (
+    primary === queryNorm ||
+    full === queryNorm ||
+    primary.includes(queryNorm) ||
+    queryNorm.includes(primary)
+  );
+}
+
+function getPlacesGeocodeRegionCode(name) {
+  if (isTaiwanCityName(name)) return "TW";
+  if (isOkinawaSearchTerm(name)) return "JP";
+  return null;
+}
+
+function lookupOverseasFallback(name) {
+  for (const variant of citySearchVariants(name)) {
+    if (OVERSEAS_FALLBACK_CITIES[variant]) return { ...OVERSEAS_FALLBACK_CITIES[variant] };
+  }
+  return null;
 }
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -735,7 +786,7 @@ function pickBestPhoton(results, query, bias) {
     return PHOTON_PREFERRED_TYPES.has(osmValue) || PHOTON_PREFERRED_TYPES.has(type);
   });
 
-  const pool = preferred.length
+  let pool = preferred.length
     ? preferred
     : results.filter((item) => !PHOTON_EXCLUDED_TYPES.has(item.props?.osm_value ?? ""));
 
@@ -750,11 +801,12 @@ function pickBestPhoton(results, query, bias) {
   const exact = pool.find(
     (item) =>
       normalizePlaceName(item.props?.name) === queryNorm ||
-      normalizePlaceName(item.name.split(",")[0]) === queryNorm
+      normalizePlaceName(item.name.split(",")[0]) === queryNorm ||
+      placeNameMatchesQuery(item.name, query)
   );
   if (exact) return exact;
 
-  if (bias?.latitude != null && bias?.longitude != null) {
+  if (bias?.latitude != null && bias?.longitude != null && shouldFilterTaiwanSuggestions(query)) {
     return [...pool].sort(
       (a, b) =>
         haversineKm(bias.latitude, bias.longitude, a.latitude, a.longitude) -
@@ -874,7 +926,7 @@ function pickBestPlacesGeocode(results, query, bias) {
   if (isTaiwanCityName(query)) {
     const inTaiwan = pool.filter((item) => isInTaiwan(item.latitude, item.longitude));
     if (inTaiwan.length) pool = inTaiwan;
-  } else if (bias?.latitude != null && bias?.longitude != null) {
+  } else if (bias?.latitude != null && bias?.longitude != null && isTaiwanCityName(bias.name ?? "")) {
     pool = [...pool].sort(
       (a, b) =>
         haversineKm(bias.latitude, bias.longitude, a.latitude, a.longitude) -
@@ -885,12 +937,15 @@ function pickBestPlacesGeocode(results, query, bias) {
   const queryNorm = normalizePlaceName(query);
   const exact = pool.find((item) => {
     const displayName = item.displayName ?? item.name ?? "";
-    return (
-      normalizePlaceName(displayName) === queryNorm ||
-      normalizePlaceName(displayName.split(",")[0]) === queryNorm
-    );
+    return placeNameMatchesQuery(displayName, query);
   });
   if (exact) return exact;
+
+  const partial = pool.find((item) => {
+    const primary = normalizePlaceName((item.displayName ?? item.name ?? "").split(",")[0]);
+    return primary.includes(queryNorm) || queryNorm.includes(primary);
+  });
+  if (partial) return partial;
 
   return pool[0];
 }
@@ -899,6 +954,13 @@ async function geocodeByPlaces(name) {
   const apiKey = getPlacesApiKey();
   if (!apiKey) throw new Error("NO_API_KEY");
 
+  const regionCode = getPlacesGeocodeRegionCode(name);
+  const body = {
+    textQuery: name,
+    maxResultCount: 5,
+    ...(regionCode ? { regionCode } : {}),
+  };
+
   const res = await fetchWithOptions(PLACES_API, {
     method: "POST",
     headers: {
@@ -906,11 +968,7 @@ async function geocodeByPlaces(name) {
       "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask": "places.displayName,places.location,places.primaryType",
     },
-    body: JSON.stringify({
-      textQuery: name,
-      maxResultCount: 5,
-      ...(isTaiwanCityName(name) ? { regionCode: "TW" } : {}),
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -1003,7 +1061,7 @@ function shouldFilterTaiwanSuggestions(term) {
   return isTaiwanCityName(term) || /[市縣區]/.test(term);
 }
 
-function mergeCitySuggestions(meteoResults, photonResults, term) {
+function mergeCitySuggestions(meteoResults, photonResults, term, placesResults = []) {
   const termNorm = normalizePlaceName(term);
   const filterTaiwan = shouldFilterTaiwanSuggestions(term);
   const seen = new Set();
@@ -1051,6 +1109,16 @@ function mergeCitySuggestions(meteoResults, photonResults, term) {
     });
   }
 
+  for (const result of placesResults) {
+    add({
+      label: result.label,
+      sublabel: result.sublabel || "",
+      latitude: result.latitude,
+      longitude: result.longitude,
+      population: result.population ?? 50000,
+    });
+  }
+
   for (const [name, data] of Object.entries(FALLBACK_CITIES)) {
     const nameNorm = normalizePlaceName(name);
     if (nameNorm.includes(termNorm) || termNorm.includes(nameNorm)) {
@@ -1060,6 +1128,19 @@ function mergeCitySuggestions(meteoResults, photonResults, term) {
         latitude: data.latitude,
         longitude: data.longitude,
         population: 999999,
+      });
+    }
+  }
+
+  for (const [name, data] of Object.entries(OVERSEAS_FALLBACK_CITIES)) {
+    const nameNorm = normalizePlaceName(name);
+    if (nameNorm.includes(termNorm) || termNorm.includes(nameNorm)) {
+      add({
+        label: data.name,
+        sublabel: data.region,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        population: 500000,
       });
     }
   }
@@ -1074,7 +1155,11 @@ function mergeCitySuggestions(meteoResults, photonResults, term) {
     const bStarts = bNorm.startsWith(termNorm) ? 1 : 0;
     if (bStarts !== aStarts) return bStarts - aStarts;
     if (b.population !== a.population) return b.population - a.population;
-    if (currentCity?.latitude != null && currentCity?.longitude != null) {
+    if (
+      filterTaiwan &&
+      currentCity?.latitude != null &&
+      currentCity?.longitude != null
+    ) {
       return (
         haversineKm(currentCity.latitude, currentCity.longitude, a.latitude, a.longitude) -
         haversineKm(currentCity.latitude, currentCity.longitude, b.latitude, b.longitude)
@@ -1086,15 +1171,97 @@ function mergeCitySuggestions(meteoResults, photonResults, term) {
   return items.slice(0, AUTOCOMPLETE_MAX);
 }
 
-async function fetchCitySuggestions(term) {
-  const [meteoResult, photonResult] = await Promise.allSettled([
-    geocodeByName(term, "zh"),
-    photonGeocode(term, currentCity),
-  ]);
+function mapPlacesToSuggestions(results) {
+  const seen = new Set();
+  const items = [];
 
-  const meteo = meteoResult.status === "fulfilled" ? meteoResult.value : [];
-  const photon = photonResult.status === "fulfilled" ? photonResult.value : [];
-  return mergeCitySuggestions(meteo, photon, term);
+  for (const place of results) {
+    const displayName = place.displayName || place.name || "";
+    const label = displayName.split(",")[0].trim() || displayName;
+    const key = normalizePlaceName(label);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const sublabel = displayName.includes(",")
+      ? displayName.split(",").slice(1).join(",").trim()
+      : "";
+    items.push({
+      label,
+      sublabel,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      population: 50000,
+    });
+  }
+
+  return items;
+}
+
+async function fetchPlacesGeocodeSuggestions(term) {
+  const cacheKey = normalizePlaceName(term);
+  if (geocodeCache.key === cacheKey && Date.now() < geocodeCache.expiresAt) {
+    return geocodeCache.suggestions;
+  }
+
+  const variants = [...new Set(citySearchVariants(term))].slice(0, 2);
+  const seen = new Set();
+  const items = [];
+
+  for (const variant of variants) {
+    try {
+      const results = await geocodeByPlaces(variant);
+      for (const item of mapPlacesToSuggestions(results)) {
+        const key = normalizePlaceName(item.label);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        items.push(item);
+      }
+    } catch {
+      // try next variant
+    }
+  }
+
+  geocodeCache = {
+    key: cacheKey,
+    suggestions: items,
+    expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS,
+  };
+  return items;
+}
+
+async function fetchCitySuggestions(term) {
+  const variants = [...new Set(citySearchVariants(term))].slice(0, 3);
+  const photonBias = shouldFilterTaiwanSuggestions(term) ? currentCity : null;
+  const tasks = [];
+
+  for (const variant of variants) {
+    tasks.push(geocodeByName(variant, "zh"));
+    tasks.push(geocodeByName(variant, "en"));
+    tasks.push(photonGeocode(variant, photonBias));
+  }
+  if (getPlacesApiKey()) {
+    tasks.push(fetchPlacesGeocodeSuggestions(term));
+  }
+
+  const settled = await Promise.allSettled(tasks);
+  const meteo = [];
+  const photon = [];
+  let places = [];
+
+  settled.forEach((result, index) => {
+    if (result.status !== "fulfilled") return;
+    const variantCount = variants.length;
+    if (index < variantCount * 2) {
+      meteo.push(...result.value);
+      return;
+    }
+    if (index < variantCount * 3) {
+      photon.push(...result.value);
+      return;
+    }
+    places = result.value;
+  });
+
+  return mergeCitySuggestions(meteo, photon, term, places);
 }
 
 function setAutocompleteExpanded(expanded) {
@@ -1175,7 +1342,7 @@ async function refreshCitySuggestions() {
     renderCitySuggestions(items, -1);
   } catch {
     if (token !== autocompleteToken) return;
-    hideCitySuggestions();
+    renderCitySuggestions(mergeCitySuggestions([], [], term), -1);
   }
 }
 
@@ -1280,37 +1447,46 @@ function resolveTaiwanCityCoords(result, query) {
 
 async function geocodeCity(name) {
   const variants = citySearchVariants(name);
+  const photonBias = shouldFilterTaiwanSuggestions(name) ? currentCity : null;
+  const hasPlaces = Boolean(getPlacesApiKey());
 
   for (const variant of variants) {
-    for (const language of ["zh", "en"]) {
-      try {
-        const results = await geocodeByName(variant, language);
-        if (results.length) {
-          const best = pickBestResult(results, variant);
-          const resolved = resolveTaiwanCityCoords(best, name);
-          return {
-            ...resolved,
-            name: resolveDisplayName(name, resolved, variant),
-          };
-        }
-      } catch {
-        // try next language or variant
+    const [meteoZh, meteoEn, photonResult, placesResult] = await Promise.allSettled([
+      geocodeByName(variant, "zh"),
+      geocodeByName(variant, "en"),
+      photonGeocode(variant, photonBias),
+      hasPlaces ? geocodeByPlaces(variant) : Promise.resolve([]),
+    ]);
+
+    const meteoResults = [];
+    if (meteoZh.status === "fulfilled") meteoResults.push(...meteoZh.value);
+    if (meteoEn.status === "fulfilled") meteoResults.push(...meteoEn.value);
+    if (meteoResults.length) {
+      const best = pickBestResult(meteoResults, variant);
+      const resolved = resolveTaiwanCityCoords(best, name);
+      return {
+        ...resolved,
+        name: resolveDisplayName(name, resolved, variant),
+      };
+    }
+
+    if (placesResult.status === "fulfilled" && placesResult.value.length) {
+      const best = pickBestPlacesGeocode(
+        placesResult.value,
+        variant,
+        shouldFilterTaiwanSuggestions(name) ? currentCity : null
+      );
+      if (best) {
+        return {
+          latitude: best.latitude,
+          longitude: best.longitude,
+          name: resolveDisplayName(name, best, variant),
+        };
       }
     }
-  }
 
-  // 台灣已知城市優先使用精準座標（避免 Photon 對到中國同名地）
-  if (isTaiwanCityName(name)) {
-    for (const variant of variants) {
-      if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
-    }
-  }
-
-  // Open-Meteo 找不到時，改用 Photon（涵蓋鄉鎮市區與全球地區）
-  try {
-    for (const variant of variants) {
-      const results = await photonGeocode(variant, currentCity);
-      const best = pickBestPhoton(results, variant, currentCity);
+    if (photonResult.status === "fulfilled" && photonResult.value.length) {
+      const best = pickBestPhoton(photonResult.value, variant, photonBias);
       if (best) {
         const resolved = resolveTaiwanCityCoords(
           {
@@ -1323,32 +1499,19 @@ async function geocodeCity(name) {
         return resolved;
       }
     }
-  } catch {
-    // fall through to Places geocode or FALLBACK_CITIES
   }
 
-  // Open-Meteo、Photon 都失敗時，先查已知城市座標
+  if (isTaiwanCityName(name)) {
+    for (const variant of variants) {
+      if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
+    }
+  }
+
+  const overseasFallback = lookupOverseasFallback(name);
+  if (overseasFallback) return { ...overseasFallback };
+
   for (const variant of variants) {
     if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
-  }
-
-  // 仍失敗時，改用 Places（需 API Key）
-  if (getPlacesApiKey()) {
-    try {
-      for (const variant of variants) {
-        const results = await geocodeByPlaces(variant);
-        const best = pickBestPlacesGeocode(results, variant, currentCity);
-        if (best) {
-          return {
-            latitude: best.latitude,
-            longitude: best.longitude,
-            name: resolveDisplayName(name, best, variant),
-          };
-        }
-      }
-    } catch {
-      // fall through to error
-    }
   }
 
   throw new Error(
