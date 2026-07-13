@@ -758,9 +758,12 @@ body {
 .hourly {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  overflow-x: auto;
   gap: 0.625rem;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .hourly-item {
@@ -768,6 +771,8 @@ body {
   border-radius: var(--radius-sm);
   padding: 0.875rem 0.5rem;
   text-align: center;
+  min-width: 4.25rem;
+  flex-shrink: 0;
 }
 
 .hourly-item .mini-icon {
@@ -786,6 +791,12 @@ body {
   margin: 0.25rem 0 0;
   font-size: 1rem;
   font-weight: 600;
+}
+
+.hourly-item .precip {
+  margin: 0.15rem 0 0;
+  font-size: 0.7rem;
+  color: var(--text-mid);
 }
 
 .daily {

@@ -56,13 +56,6 @@ const WEATHER_TEXT = {
   99: "強雷雨伴冰雹",
 };
 
-const HOURLY_SLOTS = [
-  { label: "中午", hour: 12 },
-  { label: "下午", hour: 15 },
-  { label: "傍晚", hour: 18 },
-  { label: "晚上", hour: 21 },
-];
-
 const CITY_ALIASES = {
   台北: "台北市",
   台中: "台中市",
@@ -2955,18 +2948,64 @@ function renderSightList(items = sightItems, showAll = sightExpanded, state = {}
   els.viewAllSights.classList.toggle("hidden", items.length <= 3);
 }
 
+function getNextHourlyIndices(hourly, count = 24) {
+  const times = hourly?.time ?? [];
+  if (!times.length) return [];
+
+  const now = new Date();
+  const currentHour = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    now.getHours(),
+    0,
+    0,
+    0
+  );
+
+  let start = times.findIndex((iso) => new Date(iso).getTime() >= currentHour.getTime());
+  if (start < 0) start = Math.max(0, times.length - 1);
+
+  const indices = [];
+  for (let i = start; i < times.length && indices.length < count; i += 1) {
+    indices.push(i);
+  }
+  return indices;
+}
+
+function formatHourlyLabel(iso, isFirst) {
+  if (isFirst) return "現在";
+  const hour = new Date(iso).getHours();
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
 function renderHourly(hourly) {
-  els.hourlyForecast.innerHTML = HOURLY_SLOTS.map((slot) => {
-    const idx = nearestHourlyIndex(hourly.time, slot.hour);
-    const temp = Math.round(hourly.temperature_2m[idx]);
-    const code = hourly.weather_code[idx];
-    return `
+  if (!hourly?.time?.length) {
+    els.hourlyForecast.innerHTML = "";
+    return;
+  }
+
+  const indices = getNextHourlyIndices(hourly, 24);
+  els.hourlyForecast.innerHTML = indices
+    .map((idx, position) => {
+      const iso = hourly.time[idx];
+      const hour = new Date(iso).getHours();
+      const temp = Math.round(hourly.temperature_2m[idx]);
+      const code = hourly.weather_code[idx];
+      const precip = hourly.precipitation_probability?.[idx];
+      const precipHtml =
+        precip != null
+          ? `<p class="precip">${Math.round(precip)}%</p>`
+          : "";
+      return `
       <article class="hourly-item">
-        <div class="mini-icon">${iconSvg("mini", code, slot.hour)}</div>
-        <p class="label">${slot.label}</p>
+        <div class="mini-icon">${iconSvg("mini", code, hour)}</div>
+        <p class="label">${formatHourlyLabel(iso, position === 0)}</p>
         <p class="value">${temp}°</p>
+        ${precipHtml}
       </article>`;
-  }).join("");
+    })
+    .join("");
 }
 
 function formatDayLabel(dateStr, index, displayDays = DEFAULT_DAILY_DISPLAY) {
