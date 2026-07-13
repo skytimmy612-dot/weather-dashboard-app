@@ -1,6 +1,6 @@
 # 天氣查詢 Dashboard
 
-依 `dashboard-ui-iphone17promax.png` 設計的單頁 HTML 天氣查詢工具，整合穿搭與美食推薦區塊。
+依 `dashboard-ui-iphone17promax.png` 設計的單頁 HTML 天氣查詢工具，整合穿搭、美食／景點推薦與旅遊行程摘要。
 
 ## 線上版（iPhone / 手機建議）
 
@@ -19,25 +19,46 @@
 
 ## 功能
 
-- 查詢全球城市即時天氣（Open-Meteo API，免 API Key）
-- 點定位圖示查詢目前位置天氣
-- 顯示溫度、天氣描述、濕度、體感溫度、風速、UV 指數
-- 中午 / 下午 / 傍晚 / 晚上 四段預報
-- 未來 5 日天氣預報
-- 降雨 / 帶傘提醒（依即時天氣與降雨機率）
-- 多城市收藏（最多 5 個，快速切換）
-- 旅遊模式：搜尋列輸入 `7/10-7/15 沖繩`，產生逐日行程摘要（天氣 + 穿搭 + 輪流美食，預報上限近 16 天）
-- 日出 / 日落時間
+### 天氣
+
+- 查詢全球城市即時天氣（Open-Meteo，免 API Key）
+- 定位查詢目前位置天氣
+- 顯示溫度、天氣描述、濕度、體感溫度、風速、UV 指數、日出／日落
+- **24 小時**時段預報（橫向捲動：溫度、天氣圖示、降雨機率）
+- **5／7／16 日**每日預報切換（偏好存 localStorage；一次取滿 16 天資料）
+- 降雨／帶傘提醒
 - 天氣動畫（晴天光暈、雨滴、雪花、雷雨、飄雲）
-- 分享天氣（iOS 分享面板，桌面複製到剪貼簿）
-- PWA：可加入主畫面、支援離線開啟
 - 依天氣自動產生穿搭建議
-- 附近美食推薦（Google Places API，4 顆星以上真實餐廳）
+
+### 搜尋與收藏
+
+- 城市搜尋**自動完成**（Open-Meteo + Photon + 可選 Google Places；debounce 下拉建議）
+- 多城市收藏（最多 5 個，快速切換）
 - 記住上次查詢城市
+- **收藏店家**（美食／景點，最多 20 間，獨立於城市收藏）
+
+### 美食與景點（需 Google Places API Key）
+
+- 附近 4 顆星以上餐廳／景點推薦
+- 美食可篩選「**營業中**」
+- 點擊開啟 Google Maps；列表可星號收藏
+
+### 旅遊模式
+
+- 搜尋列輸入如 `7/10-7/15 沖繩` 或 `7/25~/7/27 嘉義`
+- 逐日行程摘要：天氣、穿搭、美食、景點
+- 行程天數在預報範圍內時，每日預報自動展開
+- 超出 Open-Meteo 可預報範圍（自今天起最多 16 天）時顯示明確提示
+- 旅遊模式下「分享」可輸出完整行程文字；一般模式分享即時天氣
+
+### 其他
+
+- PWA：可加入主畫面、支援離線開啟殼層
+- 底部導覽（天氣／穿搭／美食／景點）
 
 ## Google Places API Key 設定
 
-美食推薦需要 **Google Places API (New)** Key。
+美食、景點推薦與（有 Key 時）地名混合搜尋需要 **Google Places API (New)** Key。
 
 ### 本機開發
 
@@ -72,9 +93,7 @@ http://localhost:8765/*
 3. Repo → **Settings** → **Pages** → Source 選 **GitHub Actions**
 4. push 到 `main` 後，Actions 會在 `site/` 資料夾產生 `config.js` 並部署
 
-> 線上版 `config.js` 由 Actions 自動產生，不會出現在 Git 仓库中。
-
-瀏覽 **http://127.0.0.1:8765**（一定要含 **:8765**，只開 `127.0.0.1` 會失敗）
+> 線上版 `config.js` 由 Actions 自動產生，不會出現在 Git 倉庫中。
 
 ### 本機測試常見問題
 
@@ -105,7 +124,7 @@ cd D:\weather-dashboard-app
 python -m http.server 8765 --bind 127.0.0.1
 ```
 
-瀏覽 **http://127.0.0.1:8765**
+瀏覽 **http://127.0.0.1:8765**（一定要含 **:8765**）
 
 ## GitHub Pages 部署
 
@@ -124,12 +143,19 @@ git push origin main
 |------|------|
 | `index.html` | 頁面結構 |
 | `styles.css` | Dashboard UI 樣式 |
-| `app.js` | 天氣查詢與畫面更新邏輯 |
+| `app.js` | 天氣查詢、旅遊模式、Places 與畫面邏輯 |
+| `sw.js` | Service Worker（PWA） |
+| `manifest.json` | PWA manifest |
 | `config.js` | 本機 API Key（手動建立，不提交） |
+| `config.example.js` | API Key 範例 |
+| `start.bat` / `open.bat` | 本機啟動捷徑 |
 | `.github/workflows/pages.yml` | GitHub Pages 自動部署 |
 
 ## API
 
-- [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api)
-- [Open-Meteo Weather](https://open-meteo.com/en/docs)
-- [Google Places API (New)](https://developers.google.com/maps/documentation/places/web-service/overview)
+| 用途 | 服務 |
+|------|------|
+| 天氣／地理編碼 | [Open-Meteo Weather](https://open-meteo.com/en/docs)、[Geocoding](https://open-meteo.com/en/docs/geocoding-api) |
+| 地名 fallback | [Photon](https://photon.komoot.io/)（OpenStreetMap） |
+| 反向地理編碼 | [BigDataCloud](https://www.bigdatacloud.com/docs/api/free-reverse-geocode-to-city-api) |
+| 美食／景點／地名輔助 | [Google Places API (New)](https://developers.google.com/maps/documentation/places/web-service/overview) |
