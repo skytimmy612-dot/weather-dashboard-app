@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" content="default" />
   <meta name="apple-mobile-web-app-title" content="天氣" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=20260738" />
+  <link rel="stylesheet" href="styles.css?v=20260739" />
   <script>
     (function () {
       try {
@@ -29,6 +29,10 @@
 <body>
   <div class="phone">
     <main class="app" id="app">
+      <div class="pull-refresh" id="pullRefresh" aria-hidden="true">
+        <span class="pull-refresh-spinner" aria-hidden="true"></span>
+        <span class="pull-refresh-label">下拉更新</span>
+      </div>
       <section class="search-section" aria-label="城市查詢">
         <form class="city-search" id="searchForm">
           <button type="button" class="pin-btn" id="locateBtn" aria-label="查詢目前位置天氣" title="我的位置">
@@ -180,6 +184,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260738" defer></script>
+  <script src="app.js?v=20260739" defer></script>
 </body>
 </html>

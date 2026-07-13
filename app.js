@@ -215,6 +215,7 @@ const els = {
   placeFavoritesList: $("placeFavoritesList"),
   loading: $("loading"),
   error: $("error"),
+  pullRefresh: $("pullRefresh"),
   travelSummary: $("travelSummary"),
   travelDays: $("travelDays"),
   travelTitle: $("travelTitle"),
@@ -250,8 +251,18 @@ let autocompleteActiveIndex = -1;
 let autocompleteToken = 0;
 let autocompleteTimer = null;
 let autocompleteBlurTimer = null;
+let pullRefreshing = false;
 
-function setLoading(on) {
+const PULL_THRESHOLD = 72;
+const PULL_MAX = 120;
+const PULL_RESISTANCE = 0.45;
+const PULL_IGNORE_SELECTOR = ".hourly, .daily.is-scroll, .favorite-chips, .city-suggestions";
+
+function setLoading(on, message) {
+  if (on) {
+    els.loading.textContent =
+      message ?? (pullRefreshing ? "更新中…" : "查詢天氣中…");
+  }
   els.loading.classList.toggle("hidden", !on);
   if (els.locateBtn) els.locateBtn.disabled = on;
 }
@@ -2195,6 +2206,119 @@ async function querySavedCity(city) {
   }
 }
 
+async function refreshCurrent() {
+  if (pullRefreshing) return;
+  pullRefreshing = true;
+  setPullRefreshState("refreshing");
+
+  try {
+    const travel = parseTravelQuery(els.cityInput.value.trim());
+    if (travel) {
+      await enterTravelMode(travel);
+      return;
+    }
+    if (currentCity?.latitude == null || currentCity?.longitude == null) return;
+    placesCache = { key: "", food: [], sights: [], expiresAt: 0 };
+    await querySavedCity(currentCity);
+  } finally {
+    pullRefreshing = false;
+    resetPullRefreshIndicator();
+  }
+}
+
+function pageScrollTop() {
+  return window.scrollY || document.documentElement.scrollTop || 0;
+}
+
+function setPullRefreshState(state) {
+  const el = els.pullRefresh;
+  if (!el) return;
+  el.classList.toggle("is-visible", state === "pulling" || state === "ready" || state === "refreshing");
+  el.classList.toggle("is-ready", state === "ready");
+  el.classList.toggle("is-refreshing", state === "refreshing");
+  if (state === "refreshing") {
+    el.style.transform = `translateY(calc(-100% + ${PULL_THRESHOLD}px))`;
+  }
+  const label = el.querySelector(".pull-refresh-label");
+  if (label) {
+    if (state === "ready") label.textContent = "放開更新";
+    else if (state === "refreshing") label.textContent = "更新中…";
+    else label.textContent = "下拉更新";
+  }
+  el.setAttribute("aria-hidden", state === "idle" ? "true" : "false");
+}
+
+function resetPullRefreshIndicator() {
+  const el = els.pullRefresh;
+  if (el) el.style.transform = "";
+  setPullRefreshState("idle");
+}
+
+function updatePullRefreshIndicator(distance) {
+  const el = els.pullRefresh;
+  if (!el) return;
+  const ready = distance >= PULL_THRESHOLD;
+  setPullRefreshState(ready ? "ready" : "pulling");
+  const offset = Math.min(distance, PULL_MAX);
+  el.style.transform = `translateY(calc(-100% + ${offset}px))`;
+}
+
+function initPullRefresh() {
+  const root = document.querySelector(".phone") || $("app") || document.body;
+  if (!root || !els.pullRefresh) return;
+
+  let startY = 0;
+  let pulling = false;
+  let distance = 0;
+
+  const onStart = (e) => {
+    if (pullRefreshing) return;
+    if (pageScrollTop() > 0) return;
+    const target = e.target;
+    if (target?.closest?.(PULL_IGNORE_SELECTOR)) return;
+    if (target?.closest?.("input, textarea, button, select, a")) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+    distance = 0;
+  };
+
+  const onMove = (e) => {
+    if (!pulling || pullRefreshing) return;
+    if (pageScrollTop() > 0) {
+      pulling = false;
+      distance = 0;
+      resetPullRefreshIndicator();
+      return;
+    }
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) {
+      distance = 0;
+      resetPullRefreshIndicator();
+      return;
+    }
+    distance = dy * PULL_RESISTANCE;
+    if (distance > 8) e.preventDefault();
+    updatePullRefreshIndicator(distance);
+  };
+
+  const onEnd = () => {
+    if (!pulling) return;
+    pulling = false;
+    if (pullRefreshing) return;
+    if (distance >= PULL_THRESHOLD) {
+      refreshCurrent();
+    } else {
+      resetPullRefreshIndicator();
+    }
+    distance = 0;
+  };
+
+  root.addEventListener("touchstart", onStart, { passive: true });
+  root.addEventListener("touchmove", onMove, { passive: false });
+  root.addEventListener("touchend", onEnd, { passive: true });
+  root.addEventListener("touchcancel", onEnd, { passive: true });
+}
+
 function queryCurrentLocation() {
   if (!navigator.geolocation) {
     setError("此瀏覽器不支援定位功能");
@@ -3434,6 +3558,7 @@ function registerServiceWorker() {
 async function init() {
   initTheme();
   bindEvents();
+  initPullRefresh();
   registerServiceWorker();
   loadDailyDisplayPreference();
   setSearchHint(DEFAULT_CITY, false);

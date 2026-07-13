@@ -421,6 +421,55 @@ html[data-theme="dark"] .theme-btn .theme-icon-sun {
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
+  position: relative;
+}
+
+.pull-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.75rem;
+  margin: -0.5rem 0 0;
+  color: var(--text-mid);
+  font-size: 0.85rem;
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.pull-refresh.is-visible {
+  opacity: 1;
+}
+
+.pull-refresh.is-ready {
+  color: var(--brown);
+}
+
+.pull-refresh.is-refreshing .pull-refresh-spinner {
+  animation: pullSpin 0.75s linear infinite;
+}
+
+.pull-refresh-spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--brown);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@keyframes pullSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pull-refresh.is-refreshing .pull-refresh-spinner {
+    animation: none;
+  }
 }
 
 .card {
