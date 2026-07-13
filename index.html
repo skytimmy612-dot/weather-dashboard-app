@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="天氣" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=20260734" />
+  <link rel="stylesheet" href="styles.css?v=20260735" />
 </head>
 <body>
   <div class="phone">
@@ -94,13 +94,27 @@
         <div class="outfit-grid" id="outfitGrid"></div>
       </section>
 
+      <section class="card card-place-favorites hidden" id="placeFavoritesCard" aria-labelledby="placeFavoritesTitle">
+        <h2 class="card-title" id="placeFavoritesTitle">
+          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.3l-6.2 3.3 1.2-6.9L2 8.7l6.9-1L12 1.5l3.1 6.2 6.9 1-5 5 1.2 6.9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          收藏店家
+        </h2>
+        <ul class="place-fav-list" id="placeFavoritesList"></ul>
+      </section>
+
       <section class="card card-food" aria-labelledby="foodTitle">
         <div class="food-header">
           <h2 class="card-title" id="foodTitle">
             <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v8M10 3v8M6 7h4M14 3v5c0 2 2 3 2 5v9M18 3v5c0 2-2 3-2 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             附近美食推薦
           </h2>
-          <button class="link-btn" type="button" id="viewAllFood">查看全部</button>
+          <div class="food-header-actions">
+            <label class="open-now-toggle">
+              <input type="checkbox" id="openNowFood" />
+              <span>營業中</span>
+            </label>
+            <button class="link-btn" type="button" id="viewAllFood">查看全部</button>
+          </div>
         </div>
         <ul class="food-list" id="foodList"></ul>
       </section>
@@ -148,6 +162,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260734" defer></script>
+  <script src="app.js?v=20260735" defer></script>
 </body>
 </html>

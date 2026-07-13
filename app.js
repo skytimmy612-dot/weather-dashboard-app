@@ -18,8 +18,10 @@ const PLACES_MAX_RESULTS = 20;
 
 const STORAGE_KEY = "weather-dashboard-city";
 const FAVORITES_KEY = "weather-dashboard-favorites";
+const PLACE_FAVORITES_KEY = "weather-dashboard-place-favorites";
 const FORECAST_DAYS_KEY = "weather-dashboard-forecast-days";
 const MAX_FAVORITES = 5;
+const MAX_PLACE_FAVORITES = 20;
 const MAX_FORECAST_DAYS = 16;
 const DEFAULT_DAILY_DISPLAY = 5;
 const DAILY_DISPLAY_OPTIONS = [5, 7, 16];
@@ -211,8 +213,11 @@ const els = {
   outfitGrid: $("outfitGrid"),
   foodList: $("foodList"),
   viewAllFood: $("viewAllFood"),
+  openNowFood: $("openNowFood"),
   sightList: $("sightList"),
   viewAllSights: $("viewAllSights"),
+  placeFavoritesCard: $("placeFavoritesCard"),
+  placeFavoritesList: $("placeFavoritesList"),
   loading: $("loading"),
   error: $("error"),
   travelSummary: $("travelSummary"),
@@ -231,6 +236,7 @@ const els = {
 let foodExpanded = false;
 let foodItems = [];
 let displayedFoodItems = [];
+let foodOpenNowOnly = false;
 let sightExpanded = false;
 let sightItems = [];
 let displayedSightItems = [];
@@ -427,10 +433,130 @@ function toggleFavorite() {
       longitude: currentCity.longitude,
     });
   }
-
   saveFavorites(list);
   updateFavoriteBtn();
   renderFavorites();
+  setError("");
+}
+
+function loadPlaceFavorites() {
+  try {
+    const raw = localStorage.getItem(PLACE_FAVORITES_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePlaceFavorites(list) {
+  localStorage.setItem(PLACE_FAVORITES_KEY, JSON.stringify(list));
+}
+
+function isPlaceFavorite(placeId) {
+  if (!placeId) return false;
+  return loadPlaceFavorites().some((item) => item.id === placeId);
+}
+
+function togglePlaceFavorite(place) {
+  if (!place?.id) {
+    setError("此店家無法收藏（缺少識別碼）");
+    setTimeout(() => setError(""), 2500);
+    return;
+  }
+
+  let list = loadPlaceFavorites();
+  const idx = list.findIndex((item) => item.id === place.id);
+
+  if (idx >= 0) {
+    list.splice(idx, 1);
+  } else {
+    if (list.length >= MAX_PLACE_FAVORITES) {
+      setError(`最多收藏 ${MAX_PLACE_FAVORITES} 間店家`);
+      setTimeout(() => setError(""), 2500);
+      return;
+    }
+    list.push({
+      id: place.id,
+      name: place.name,
+      rating: place.rating ?? 0,
+      desc: place.desc || "",
+      mapsUrl: place.mapsUrl || "",
+      kind: place.kind || "food",
+      latitude: place.latitude ?? null,
+      longitude: place.longitude ?? null,
+    });
+  }
+
+  savePlaceFavorites(list);
+  renderPlaceFavorites();
+  renderFoodList(foodItems, foodExpanded);
+  renderSightList(sightItems, sightExpanded);
+}
+
+function removePlaceFavoriteAt(index) {
+  const list = loadPlaceFavorites();
+  if (index < 0 || index >= list.length) return;
+  list.splice(index, 1);
+  savePlaceFavorites(list);
+  renderPlaceFavorites();
+  renderFoodList(foodItems, foodExpanded);
+  renderSightList(sightItems, sightExpanded);
+}
+
+function openPlaceFavoriteOnMaps(item) {
+  if (!item) return;
+  if (item.mapsUrl) {
+    window.open(item.mapsUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const query = [item.name, item.desc].filter(Boolean).join(" ");
+  window.open(
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
+    "_blank",
+    "noopener,noreferrer"
+  );
+}
+
+function renderPlaceFavorites() {
+  if (!els.placeFavoritesCard || !els.placeFavoritesList) return;
+
+  const list = loadPlaceFavorites();
+  if (!list.length) {
+    els.placeFavoritesCard.classList.add("hidden");
+    els.placeFavoritesList.innerHTML = "";
+    return;
+  }
+
+  els.placeFavoritesCard.classList.remove("hidden");
+  els.placeFavoritesList.innerHTML = list
+    .map(
+      (item, index) => `
+      <li
+        class="place-fav-item"
+        role="button"
+        tabindex="0"
+        data-place-fav-index="${index}"
+        aria-label="在 Google Maps 開啟${item.name}"
+      >
+        ${iconSvg(item.kind === "sight" ? "landmark" : "bowl")}
+        <div>
+          <h3>${item.name}</h3>
+          <p><span class="place-fav-kind">${item.kind === "sight" ? "景點" : "美食"}</span>${
+            item.desc ? ` · ${item.desc}` : ""
+          }</p>
+        </div>
+        <span class="rating">★ ${(item.rating ?? 0).toFixed(1)}</span>
+        <button
+          type="button"
+          class="place-fav-remove"
+          data-place-fav-remove="${index}"
+          aria-label="取消收藏${item.name}"
+        >×</button>
+      </li>`
+    )
+    .join("");
 }
 
 function removeFavoriteAt(index) {
@@ -2079,12 +2205,16 @@ function normalizePlace(place, originLat, originLng) {
   const desc = place.primaryTypeDisplayName?.text || "餐廳";
 
   return {
+    id: place.id || "",
     name: place.displayName?.text || "未命名餐廳",
     desc,
     icon: mapPlaceIcon(place.primaryType || desc),
     rating: place.rating ?? 0,
     distanceMeters: haversineDistance(originLat, originLng, lat, lng),
     mapsUrl: place.googleMapsUri || "",
+    latitude: lat,
+    longitude: lng,
+    kind: "food",
   };
 }
 
@@ -2094,12 +2224,16 @@ function normalizeSight(place, originLat, originLng) {
   const desc = place.primaryTypeDisplayName?.text || "景點";
 
   return {
+    id: place.id || "",
     name: place.displayName?.text || "未命名景點",
     desc,
     icon: mapSightIcon(place.primaryType || desc),
     rating: place.rating ?? 0,
     distanceMeters: haversineDistance(originLat, originLng, lat, lng),
     mapsUrl: place.googleMapsUri || "",
+    latitude: lat,
+    longitude: lng,
+    kind: "sight",
   };
 }
 
@@ -2471,6 +2605,7 @@ async function searchFoodOnly(latitude, longitude, cityName = "") {
             includedType: "restaurant",
             strictTypeFiltering: false,
             maxResultCount: PLACES_MAX_RESULTS,
+            ...(foodOpenNowOnly ? { openNow: true } : {}),
           },
           cityName
         )
@@ -2520,7 +2655,8 @@ async function searchSightsOnly(latitude, longitude, cityName = "") {
 
 function placesCacheKey(latitude, longitude, cityName = "") {
   const area = String(cityName || currentCity?.name || "").trim();
-  return `${area}|${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+  const openFlag = foodOpenNowOnly ? "open" : "all";
+  return `${area}|${latitude.toFixed(3)},${longitude.toFixed(3)}|${openFlag}`;
 }
 
 function getPlacesCache(latitude, longitude, cityName = "") {
@@ -2614,7 +2750,11 @@ async function loadNearbyPlaces(latitude, longitude) {
     sightItems = sights;
 
     if (!food.length) {
-      renderFoodList([], false, { message: "附近暫無 4 顆星以上餐廳" });
+      renderFoodList([], false, {
+        message: foodOpenNowOnly
+          ? "附近暫無營業中的 4 顆星以上餐廳"
+          : "附近暫無 4 顆星以上餐廳",
+      });
     } else {
       renderFoodList(foodItems, false);
     }
@@ -2691,6 +2831,22 @@ function handleSightItemAction(row) {
   if (item) openSightOnMaps(item);
 }
 
+function placeFavButtonHtml(item) {
+  const favorited = isPlaceFavorite(item.id);
+  return `
+    <button
+      type="button"
+      class="place-fav-btn${favorited ? " active" : ""}"
+      data-place-fav-toggle="1"
+      aria-label="${favorited ? "取消收藏" : "收藏"}${item.name}"
+      aria-pressed="${favorited}"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.3l-6.2 3.3 1.2-6.9L2 8.7l6.9-1L12 1.5l3.1 6.2 6.9 1-5 5 1.2 6.9z" fill="${
+        favorited ? "currentColor" : "none"
+      }" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    </button>`;
+}
+
 function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
   foodExpanded = showAll;
 
@@ -2712,7 +2868,9 @@ function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
   displayedFoodItems = picks;
 
   if (!picks.length) {
-    els.foodList.innerHTML = `<li class="place-status">附近暫無 4 顆星以上餐廳</li>`;
+    els.foodList.innerHTML = `<li class="place-status">${
+      foodOpenNowOnly ? "附近暫無營業中的 4 顆星以上餐廳" : "附近暫無 4 顆星以上餐廳"
+    }</li>`;
     els.viewAllFood.classList.add("hidden");
     return;
   }
@@ -2734,6 +2892,7 @@ function renderFoodList(items = foodItems, showAll = foodExpanded, state = {}) {
           <p>${item.desc} · ${formatPlaceDistance(item.distanceMeters)}</p>
         </div>
         <span class="rating">★ ${item.rating.toFixed(1)}</span>
+        ${placeFavButtonHtml(item)}
       </li>`
     )
     .join("");
@@ -2787,6 +2946,7 @@ function renderSightList(items = sightItems, showAll = sightExpanded, state = {}
           <p>${item.desc} · ${formatPlaceDistance(item.distanceMeters)}</p>
         </div>
         <span class="rating">★ ${item.rating.toFixed(1)}</span>
+        ${placeFavButtonHtml(item)}
       </li>`
     )
     .join("");
@@ -2974,6 +3134,16 @@ function bindEvents() {
 
   if (els.viewAllSights) els.viewAllSights.addEventListener("click", toggleSightList);
 
+  if (els.openNowFood) {
+    els.openNowFood.checked = foodOpenNowOnly;
+    els.openNowFood.addEventListener("change", () => {
+      foodOpenNowOnly = els.openNowFood.checked;
+      if (currentCity?.latitude != null && currentCity?.longitude != null) {
+        loadNearbyPlaces(currentCity.latitude, currentCity.longitude);
+      }
+    });
+  }
+
   els.locateBtn.addEventListener("click", queryCurrentLocation);
 
   if (els.shareBtn) els.shareBtn.addEventListener("click", shareWeather);
@@ -2996,6 +3166,15 @@ function bindEvents() {
   });
 
   els.foodList.addEventListener("click", (e) => {
+    const favBtn = e.target.closest("[data-place-fav-toggle]");
+    if (favBtn) {
+      e.stopPropagation();
+      const row = favBtn.closest(".food-item");
+      if (!row) return;
+      const item = displayedFoodItems[Number(row.dataset.foodIndex)];
+      if (item) togglePlaceFavorite(item);
+      return;
+    }
     const row = e.target.closest(".food-item");
     if (!row) return;
     handleFoodItemAction(row);
@@ -3003,6 +3182,16 @@ function bindEvents() {
 
   els.foodList.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
+    const favBtn = e.target.closest("[data-place-fav-toggle]");
+    if (favBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const row = favBtn.closest(".food-item");
+      if (!row) return;
+      const item = displayedFoodItems[Number(row.dataset.foodIndex)];
+      if (item) togglePlaceFavorite(item);
+      return;
+    }
     const row = e.target.closest(".food-item");
     if (!row) return;
     e.preventDefault();
@@ -3011,6 +3200,15 @@ function bindEvents() {
 
   if (els.sightList) {
     els.sightList.addEventListener("click", (e) => {
+      const favBtn = e.target.closest("[data-place-fav-toggle]");
+      if (favBtn) {
+        e.stopPropagation();
+        const row = favBtn.closest(".sight-item");
+        if (!row) return;
+        const item = displayedSightItems[Number(row.dataset.sightIndex)];
+        if (item) togglePlaceFavorite(item);
+        return;
+      }
       const row = e.target.closest(".sight-item");
       if (!row) return;
       handleSightItemAction(row);
@@ -3018,10 +3216,44 @@ function bindEvents() {
 
     els.sightList.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return;
+      const favBtn = e.target.closest("[data-place-fav-toggle]");
+      if (favBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = favBtn.closest(".sight-item");
+        if (!row) return;
+        const item = displayedSightItems[Number(row.dataset.sightIndex)];
+        if (item) togglePlaceFavorite(item);
+        return;
+      }
       const row = e.target.closest(".sight-item");
       if (!row) return;
       e.preventDefault();
       handleSightItemAction(row);
+    });
+  }
+
+  if (els.placeFavoritesList) {
+    els.placeFavoritesList.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest("[data-place-fav-remove]");
+      if (removeBtn) {
+        e.stopPropagation();
+        removePlaceFavoriteAt(Number(removeBtn.dataset.placeFavRemove));
+        return;
+      }
+      const row = e.target.closest("[data-place-fav-index]");
+      if (!row) return;
+      const item = loadPlaceFavorites()[Number(row.dataset.placeFavIndex)];
+      if (item) openPlaceFavoriteOnMaps(item);
+    });
+
+    els.placeFavoritesList.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const row = e.target.closest("[data-place-fav-index]");
+      if (!row || e.target.closest("[data-place-fav-remove]")) return;
+      e.preventDefault();
+      const item = loadPlaceFavorites()[Number(row.dataset.placeFavIndex)];
+      if (item) openPlaceFavoriteOnMaps(item);
     });
   }
 
@@ -3075,6 +3307,7 @@ async function init() {
   loadDailyDisplayPreference();
   setSearchHint(DEFAULT_CITY, false);
   renderFavorites();
+  renderPlaceFavorites();
   updateFavoriteBtn();
   renderOutfit(28, 0);
   if (getPlacesApiKey()) {
