@@ -20,6 +20,7 @@ const STORAGE_KEY = "weather-dashboard-city";
 const FAVORITES_KEY = "weather-dashboard-favorites";
 const PLACE_FAVORITES_KEY = "weather-dashboard-place-favorites";
 const FORECAST_DAYS_KEY = "weather-dashboard-forecast-days";
+const THEME_KEY = "weather-dashboard-theme";
 const MAX_FAVORITES = 5;
 const MAX_PLACE_FAVORITES = 20;
 const MAX_FORECAST_DAYS = 16;
@@ -198,6 +199,7 @@ const els = {
   shareBtn: $("shareBtn"),
   rainAlert: $("rainAlert"),
   favoriteBtn: $("favoriteBtn"),
+  themeBtn: $("themeBtn"),
   favoriteChips: $("favoriteChips"),
   hourlyForecast: $("hourlyForecast"),
   dailyForecast: $("dailyForecast"),
@@ -264,6 +266,68 @@ function setError(message = "") {
   els.error.classList.remove("hidden");
 }
 
+function getSystemTheme() {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function getSavedTheme() {
+  try {
+    const raw = localStorage.getItem(THEME_KEY);
+    if (raw === "light" || raw === "dark") return raw;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function resolveTheme() {
+  return getSavedTheme() ?? getSystemTheme();
+}
+
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+
+  const themeColor = next === "dark" ? "#1a2a3d" : "#d6e6f8";
+  const meta = document.getElementById("themeColorMeta");
+  if (meta) meta.setAttribute("content", themeColor);
+
+  const statusBar = document.getElementById("statusBarMeta");
+  if (statusBar) {
+    statusBar.setAttribute("content", next === "dark" ? "black-translucent" : "default");
+  }
+
+  if (els.themeBtn) {
+    const label = next === "dark" ? "切換淺色模式" : "切換深色模式";
+    els.themeBtn.setAttribute("aria-label", label);
+    els.themeBtn.title = label;
+  }
+}
+
+function toggleTheme() {
+  const next = resolveTheme() === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch {
+    // ignore
+  }
+  applyTheme(next);
+}
+
+function initTheme() {
+  applyTheme(resolveTheme());
+
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSystemChange = () => {
+    if (getSavedTheme() == null) applyTheme(getSystemTheme());
+  };
+  if (typeof media.addEventListener === "function") {
+    media.addEventListener("change", onSystemChange);
+  } else if (typeof media.addListener === "function") {
+    media.addListener(onSystemChange);
+  }
+}
+
 function weatherLabel(code) {
   return WEATHER_TEXT[code] ?? "多雲";
 }
@@ -276,7 +340,7 @@ function isSnowy(code) {
   return [71, 73, 75, 77, 85, 86].includes(code);
 }
 
-function weatherFxType(code, hour) {
+function weatherFxType(code) {
   if ([95, 96, 99].includes(code)) return "thunder";
   if (isSnowy(code)) return "snow";
   if (isRainy(code)) return "rain";
@@ -289,12 +353,27 @@ function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function renderWeatherFx(code, hour = new Date().getHours()) {
+function localHourFromIso(iso) {
+  const match = String(iso ?? "").match(/T(\d{2})/);
+  if (match) return Number(match[1]);
+  return new Date().getHours();
+}
+
+function weatherIsNight(weather) {
+  const localHour = localHourFromIso(weather?.current?.time);
+  const isDay = weather?.current?.is_day;
+  // Open-Meteo is_day follows sunrise/sunset; also treat 19:00–05:59 as night for UI.
+  if (isDay === 0 || isDay === false) return true;
+  if (hourIsNight(localHour)) return true;
+  return false;
+}
+
+function renderWeatherFx(code, isNight = hourIsNight(new Date().getHours())) {
   if (!els.weatherFx) return;
 
-  const type = weatherFxType(code, hour);
+  const type = weatherFxType(code);
   let className = `weather-fx fx-${type}`;
-  if (type === "clear" && hourIsNight(hour)) {
+  if (type === "clear" && isNight) {
     className += " fx-night";
   }
 
@@ -714,6 +793,7 @@ function clearWeatherOnError() {
     els.weatherFx.className = "weather-fx";
     els.weatherFx.innerHTML = "";
   }
+  els.cards?.weather?.classList.remove("is-night");
 }
 
 function iconSvg(type, code = 0, hour = 12) {
@@ -740,7 +820,7 @@ function iconSvg(type, code = 0, hour = 12) {
   if (type === "main") {
     if ([95, 96, 99].includes(code)) return map.storm;
     if (rainy) return map.storm;
-    if (code <= 1) return map.sun;
+    if (code <= 1) return hourIsNight(hour) ? map.moon : map.sun;
     if (code <= 3) return map.cloud;
     return map.cloud;
   }
@@ -1644,7 +1724,7 @@ async function fetchWeather(latitude, longitude, days = 5) {
   url.searchParams.set("longitude", longitude);
   url.searchParams.set(
     "current",
-    "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m,uv_index"
+    "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m,uv_index,is_day"
   );
   url.searchParams.set("hourly", "temperature_2m,weather_code,precipitation_probability");
   url.searchParams.set(
@@ -2948,23 +3028,29 @@ function renderSightList(items = sightItems, showAll = sightExpanded, state = {}
   els.viewAllSights.classList.toggle("hidden", items.length <= 3);
 }
 
-function getNextHourlyIndices(hourly, count = 24) {
+function getNextHourlyIndices(hourly, count = 24, referenceIso = null) {
   const times = hourly?.time ?? [];
   if (!times.length) return [];
 
-  const now = new Date();
-  const currentHour = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    now.getHours(),
-    0,
-    0,
-    0
-  );
-
-  let start = times.findIndex((iso) => new Date(iso).getTime() >= currentHour.getTime());
-  if (start < 0) start = Math.max(0, times.length - 1);
+  let start = 0;
+  if (referenceIso) {
+    const ref = String(referenceIso).slice(0, 13);
+    start = times.findIndex((iso) => String(iso).slice(0, 13) >= ref);
+    if (start < 0) start = Math.max(0, times.length - 1);
+  } else {
+    const now = new Date();
+    const currentHour = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      now.getHours(),
+      0,
+      0,
+      0
+    );
+    start = times.findIndex((iso) => new Date(iso).getTime() >= currentHour.getTime());
+    if (start < 0) start = Math.max(0, times.length - 1);
+  }
 
   const indices = [];
   for (let i = start; i < times.length && indices.length < count; i += 1) {
@@ -2975,21 +3061,21 @@ function getNextHourlyIndices(hourly, count = 24) {
 
 function formatHourlyLabel(iso, isFirst) {
   if (isFirst) return "現在";
-  const hour = new Date(iso).getHours();
+  const hour = localHourFromIso(iso);
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
-function renderHourly(hourly) {
+function renderHourly(hourly, referenceIso = null) {
   if (!hourly?.time?.length) {
     els.hourlyForecast.innerHTML = "";
     return;
   }
 
-  const indices = getNextHourlyIndices(hourly, 24);
+  const indices = getNextHourlyIndices(hourly, 24, referenceIso);
   els.hourlyForecast.innerHTML = indices
     .map((idx, position) => {
       const iso = hourly.time[idx];
-      const hour = new Date(iso).getHours();
+      const hour = localHourFromIso(iso);
       const temp = Math.round(hourly.temperature_2m[idx]);
       const code = hourly.weather_code[idx];
       const precip = hourly.precipitation_probability?.[idx];
@@ -3080,17 +3166,20 @@ function renderWeather(city, weather) {
   const humidity = current.relative_humidity_2m;
   const code = current.weather_code;
   const label = weatherLabel(code);
+  const isNight = weatherIsNight(weather);
+  const localHour = localHourFromIso(current.time);
 
   els.cityInput.value = city.name;
   setSearchHint(city.name, true);
   els.currentTemp.textContent = `${temp}°C`;
   els.weatherDesc.textContent = `${label} · 濕度 ${humidity}%`;
   renderWeatherExtras(current);
-  els.weatherIcon.innerHTML = iconSvg("main", code);
-  renderWeatherFx(code, new Date().getHours());
+  els.weatherIcon.innerHTML = iconSvg("main", code, localHour);
+  renderWeatherFx(code, isNight);
+  els.cards?.weather?.classList.toggle("is-night", isNight);
 
   renderSun(weather.daily);
-  renderHourly(weather.hourly);
+  renderHourly(weather.hourly, current.time);
   renderDaily(weather.daily);
   renderRainAlert(weather);
   renderOutfit(temp, code);
@@ -3188,6 +3277,8 @@ function bindEvents() {
   if (els.shareBtn) els.shareBtn.addEventListener("click", shareWeather);
 
   els.favoriteBtn.addEventListener("click", toggleFavorite);
+
+  if (els.themeBtn) els.themeBtn.addEventListener("click", toggleTheme);
 
   els.favoriteChips.addEventListener("click", (e) => {
     const removeBtn = e.target.closest("[data-fav-remove]");
@@ -3335,12 +3426,13 @@ function bindEvents() {
 function registerServiceWorker() {
   if (location.protocol === "file:") return;
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("sw.js?v=3").catch(() => {
+  navigator.serviceWorker.register("sw.js?v=4").catch(() => {
     // 註冊失敗不影響主功能
   });
 }
 
 async function init() {
+  initTheme();
   bindEvents();
   registerServiceWorker();
   loadDailyDisplayPreference();
