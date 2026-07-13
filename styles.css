@@ -257,6 +257,58 @@ html[data-theme="dark"] .theme-btn .theme-icon-sun {
   color: var(--text-light);
 }
 
+.city-suggestion-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem 0.25rem;
+  font-size: 0.78rem;
+  color: var(--text-light);
+  cursor: default;
+}
+
+.history-clear {
+  border: none;
+  background: transparent;
+  color: var(--brown);
+  font-size: 0.78rem;
+  font-family: inherit;
+  padding: 0.15rem 0.25rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+.history-clear:hover {
+  background: var(--hover);
+}
+
+.city-suggestion-item.history-item {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.history-remove {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-light);
+  font-size: 1.1rem;
+  line-height: 1;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.history-remove:hover {
+  color: var(--text);
+  background: var(--hover-strong);
+}
+
 .city-search input::placeholder {
   color: var(--text-light);
 }

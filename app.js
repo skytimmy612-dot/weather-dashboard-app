@@ -21,8 +21,10 @@ const FAVORITES_KEY = "weather-dashboard-favorites";
 const PLACE_FAVORITES_KEY = "weather-dashboard-place-favorites";
 const FORECAST_DAYS_KEY = "weather-dashboard-forecast-days";
 const THEME_KEY = "weather-dashboard-theme";
+const HISTORY_KEY = "weather-dashboard-search-history";
 const MAX_FAVORITES = 5;
 const MAX_PLACE_FAVORITES = 20;
+const MAX_HISTORY = 10;
 const MAX_FORECAST_DAYS = 16;
 const DEFAULT_DAILY_DISPLAY = 5;
 const DAILY_DISPLAY_OPTIONS = [5, 7, 16];
@@ -467,6 +469,107 @@ function isFavorite(city) {
   return loadFavorites().some((item) => isSameCity(item, city));
 }
 
+function loadSearchHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list.filter(
+      (item) =>
+        item &&
+        typeof item.name === "string" &&
+        Number.isFinite(item.latitude) &&
+        Number.isFinite(item.longitude)
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveSearchHistory(list) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, MAX_HISTORY)));
+}
+
+function getHistoryForDisplay() {
+  return loadSearchHistory().filter((city) => !isFavorite(city));
+}
+
+function pushSearchHistory(city) {
+  if (!city?.name || city.latitude == null || city.longitude == null) return;
+  if (isFavorite(city)) return;
+
+  const entry = {
+    name: city.name,
+    latitude: city.latitude,
+    longitude: city.longitude,
+  };
+  const list = loadSearchHistory().filter((item) => !isSameCity(item, entry));
+  list.unshift(entry);
+  saveSearchHistory(list);
+}
+
+function removeSearchHistoryCity(city) {
+  if (!city) return;
+  const list = loadSearchHistory().filter((item) => !isSameCity(item, city));
+  saveSearchHistory(list);
+}
+
+function clearSearchHistory() {
+  saveSearchHistory([]);
+}
+
+function showSearchHistorySuggestions() {
+  if (!els.citySuggestions) return;
+
+  const list = getHistoryForDisplay();
+  autocompleteItems = [];
+  autocompleteActiveIndex = -1;
+
+  if (!list.length) {
+    hideCitySuggestions();
+    return;
+  }
+
+  const rows = list
+    .map(
+      (city, index) => `
+      <li
+        class="city-suggestion-item history-item"
+        role="option"
+        aria-selected="false"
+        data-history-index="${index}"
+        id="cityHistory-${index}"
+      >
+        <span class="city-suggestion-label">${city.name}</span>
+        <button
+          type="button"
+          class="history-remove"
+          data-history-remove="${index}"
+          aria-label="移除${city.name}搜尋紀錄"
+        >×</button>
+      </li>`
+    )
+    .join("");
+
+  els.citySuggestions.innerHTML = `
+    <li class="city-suggestion-heading" role="presentation">
+      <span>最近搜尋</span>
+      <button type="button" class="history-clear" data-history-clear aria-label="清除全部搜尋紀錄">清除</button>
+    </li>
+    ${rows}`;
+  els.citySuggestions.classList.remove("hidden");
+  setAutocompleteExpanded(true);
+  if (els.cityInput) els.cityInput.removeAttribute("aria-activedescendant");
+}
+
+function applySearchHistory(city) {
+  if (!city || city.latitude == null || city.longitude == null) return;
+  hideCitySuggestions();
+  clearTravelSummary();
+  querySavedCity(city);
+}
+
 function updateFavoriteBtn() {
   if (!els.favoriteBtn) return;
   const favorited = isFavorite(currentCity);
@@ -519,6 +622,7 @@ function toggleFavorite() {
   saveFavorites(list);
   updateFavoriteBtn();
   renderFavorites();
+  if (idx < 0) removeSearchHistoryCity(currentCity);
   setError("");
 }
 
@@ -1539,7 +1643,7 @@ async function refreshCitySuggestions() {
   const term = parsed.term.trim();
 
   if (term.length < AUTOCOMPLETE_MIN_LEN) {
-    hideCitySuggestions();
+    showSearchHistorySuggestions();
     return;
   }
 
@@ -1591,6 +1695,8 @@ function bindAutocompleteEvents() {
     const parsed = extractAutocompleteTerm(els.cityInput.value);
     if (parsed.term.trim().length >= AUTOCOMPLETE_MIN_LEN) {
       scheduleCitySuggestions();
+    } else {
+      showSearchHistorySuggestions();
     }
   });
 
@@ -1639,6 +1745,29 @@ function bindAutocompleteEvents() {
 
   els.citySuggestions.addEventListener("mousedown", (e) => {
     e.preventDefault();
+
+    if (e.target.closest("[data-history-clear]")) {
+      clearSearchHistory();
+      hideCitySuggestions();
+      return;
+    }
+
+    const removeBtn = e.target.closest("[data-history-remove]");
+    if (removeBtn) {
+      const list = getHistoryForDisplay();
+      const city = list[Number(removeBtn.dataset.historyRemove)];
+      removeSearchHistoryCity(city);
+      showSearchHistorySuggestions();
+      return;
+    }
+
+    const historyRow = e.target.closest("[data-history-index]");
+    if (historyRow) {
+      const list = getHistoryForDisplay();
+      applySearchHistory(list[Number(historyRow.dataset.historyIndex)]);
+      return;
+    }
+
     const row = e.target.closest("[data-suggestion-index]");
     if (!row) return;
     applyCitySuggestion(autocompleteItems[Number(row.dataset.suggestionIndex)]);
@@ -3310,6 +3439,7 @@ function renderWeather(city, weather) {
   loadNearbyPlaces(currentCity.latitude, currentCity.longitude);
   updateFavoriteBtn();
   renderFavorites();
+  pushSearchHistory(currentCity);
 }
 
 async function queryCity(cityName) {
