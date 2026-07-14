@@ -415,12 +415,15 @@ html[data-theme="dark"] .theme-btn .theme-icon-sun {
 }
 
 .favorite-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   border: none;
   background: transparent;
   font-size: 0.78rem;
   font-family: inherit;
   color: var(--text-mid);
-  padding: 0.35rem 0.5rem 0.35rem 0.75rem;
+  padding: 0.35rem 0.4rem 0.35rem 0.7rem;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -428,6 +431,36 @@ html[data-theme="dark"] .theme-btn .theme-icon-sun {
 .favorite-chip.active .favorite-chip-btn {
   color: var(--text);
   font-weight: 600;
+}
+
+.favorite-chip-name {
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.favorite-chip-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.favorite-chip-temp {
+  font-variant-numeric: tabular-nums;
+  min-width: 1.75rem;
+}
+
+.favorite-chip-icon {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.favorite-chip-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .favorite-chip-remove {
@@ -894,6 +927,13 @@ html[data-theme="dark"] .weather-fx.fx-clear.fx-night::after {
   margin: 0.5rem 0 0;
   color: var(--text-mid);
   font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.weather-aqi {
+  margin: 0.35rem 0 0;
+  color: var(--text-mid);
+  font-size: 0.85rem;
   line-height: 1.4;
 }
 

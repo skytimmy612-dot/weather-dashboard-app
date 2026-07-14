@@ -23,19 +23,20 @@
 
 - 查詢全球城市即時天氣（Open-Meteo，免 API Key）
 - 定位查詢目前位置天氣
-- 顯示溫度、天氣描述、濕度、體感溫度、風速、UV 指數、日出／日落
+- 顯示溫度、天氣描述、濕度、體感溫度、風向／風速、UV 指數、日出／日落
+- **空氣品質**：US AQI、PM2.5 與簡短外出建議（Open-Meteo Air Quality）
 - **24 小時**時段預報（橫向捲動：溫度、天氣圖示、降雨機率）
 - **5／7／16 日**每日預報切換（偏好存 localStorage；一次取滿 16 天資料）
 - 降雨／帶傘提醒
 - 天氣動畫（晴天光暈、雨滴、雪花、雷雨、飄雲）
 - 依**查詢地當地時間**切換日間／夜間外觀（國外城市不跟台灣時區）
-- 依天氣自動產生穿搭建議
+- 依**體感溫度**與天氣自動產生穿搭建議
 
 ### 搜尋與收藏
 
 - 城市搜尋**自動完成**（Open-Meteo + Photon + 可選 Google Places；debounce 下拉建議）
 - **最近搜尋**歷史（最多 10 筆，不含已收藏；搜尋框清空後 focus 可點選重查）
-- 多城市收藏（最多 5 個，快速切換）
+- 多城市收藏（最多 5 個；chip 顯示即時溫度與天氣圖示，一鍵切換）
 - 記住上次查詢城市
 - **收藏店家**（美食／景點，最多 20 間，獨立於城市收藏）
 
@@ -160,6 +161,7 @@ git push origin main
 | 用途 | 服務 |
 |------|------|
 | 天氣／地理編碼 | [Open-Meteo Weather](https://open-meteo.com/en/docs)、[Geocoding](https://open-meteo.com/en/docs/geocoding-api) |
+| 空氣品質 | [Open-Meteo Air Quality](https://open-meteo.com/en/docs/air-quality-api) |
 | 地名 fallback | [Photon](https://photon.komoot.io/)（OpenStreetMap） |
 | 反向地理編碼 | [BigDataCloud](https://www.bigdatacloud.com/docs/api/free-reverse-geocode-to-city-api) |
 | 美食／景點／地名輔助 | [Google Places API (New)](https://developers.google.com/maps/documentation/places/web-service/overview) |

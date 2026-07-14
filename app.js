@@ -1,6 +1,7 @@
 const GEO_API = "https://geocoding-api.open-meteo.com/v1/search";
 const PHOTON_API = "https://photon.komoot.io/api/";
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast";
+const AIR_QUALITY_API = "https://air-quality-api.open-meteo.com/v1/air-quality";
 const REVERSE_GEO_API = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 const PLACES_API = "https://places.googleapis.com/v1/places:searchText";
 
@@ -195,6 +196,7 @@ const els = {
   currentTemp: $("currentTemp"),
   weatherDesc: $("weatherDesc"),
   weatherExtras: $("weatherExtras"),
+  weatherAqi: $("weatherAqi"),
   weatherSun: $("weatherSun"),
   weatherIcon: $("weatherIcon"),
   weatherFx: $("weatherFx"),
@@ -254,6 +256,8 @@ let autocompleteToken = 0;
 let autocompleteTimer = null;
 let autocompleteBlurTimer = null;
 let pullRefreshing = false;
+let airQualityToken = 0;
+let favoritesSnapToken = 0;
 
 const PULL_THRESHOLD = 72;
 const PULL_MAX = 120;
@@ -443,6 +447,88 @@ function uvLevelLabel(uv) {
   return "極高";
 }
 
+function windDirectionLabel(degrees) {
+  if (degrees == null || Number.isNaN(Number(degrees))) return "";
+  const dirs = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"];
+  const idx = Math.round(((Number(degrees) % 360) + 360) % 360 / 45) % 8;
+  return dirs[idx];
+}
+
+function usAqiLabel(aqi) {
+  if (aqi == null || Number.isNaN(Number(aqi))) return "";
+  const n = Number(aqi);
+  if (n <= 50) return "良好";
+  if (n <= 100) return "普通";
+  if (n <= 150) return "對敏感族群不健康";
+  if (n <= 200) return "不健康";
+  if (n <= 300) return "非常不健康";
+  return "危害";
+}
+
+function aqiAdvice(aqi) {
+  if (aqi == null || Number.isNaN(Number(aqi))) return "";
+  const n = Number(aqi);
+  if (n <= 50) return "適合戶外活動";
+  if (n <= 100) return "一般民眾可正常活動";
+  if (n <= 150) return "敏感族群外出請留意";
+  if (n <= 200) return "建議減少長時間戶外活動";
+  if (n <= 300) return "避免戶外劇烈活動";
+  return "請儘量待在室內";
+}
+
+function clearAirQuality() {
+  if (!els.weatherAqi) return;
+  els.weatherAqi.textContent = "";
+  els.weatherAqi.classList.add("hidden");
+}
+
+async function fetchAirQuality(latitude, longitude) {
+  const url = new URL(AIR_QUALITY_API);
+  url.searchParams.set("latitude", latitude);
+  url.searchParams.set("longitude", longitude);
+  url.searchParams.set("current", "pm2_5,us_aqi");
+  url.searchParams.set("timezone", "auto");
+
+  const res = await fetchWithTimeout(url.toString());
+  if (!res.ok) throw new Error("空氣品質服務暫時無法使用");
+  return res.json();
+}
+
+async function loadAirQuality(latitude, longitude) {
+  if (!els.weatherAqi || latitude == null || longitude == null) {
+    clearAirQuality();
+    return;
+  }
+
+  const token = ++airQualityToken;
+  try {
+    const data = await fetchAirQuality(latitude, longitude);
+    if (token !== airQualityToken) return;
+
+    const aqi = data?.current?.us_aqi;
+    const pm25 = data?.current?.pm2_5;
+    if (aqi == null && pm25 == null) {
+      clearAirQuality();
+      return;
+    }
+
+    const parts = [];
+    if (aqi != null) {
+      const label = usAqiLabel(aqi);
+      parts.push(`空氣品質 ${Math.round(aqi)}${label ? `（${label}）` : ""}`);
+    }
+    if (pm25 != null) parts.push(`PM2.5 ${Math.round(pm25)}`);
+    const advice = aqiAdvice(aqi);
+    if (advice) parts.push(advice);
+
+    els.weatherAqi.textContent = parts.join(" · ");
+    els.weatherAqi.classList.remove("hidden");
+  } catch {
+    if (token !== airQualityToken) return;
+    clearAirQuality();
+  }
+}
+
 function isSameCity(a, b) {
   return (
     Math.abs(a.latitude - b.latitude) < 0.01 &&
@@ -586,6 +672,7 @@ function renderFavorites() {
   const list = loadFavorites();
   if (!list.length) {
     els.favoriteChips.innerHTML = "";
+    favoritesSnapToken += 1;
     return;
   }
 
@@ -593,11 +680,49 @@ function renderFavorites() {
     .map(
       (city, index) => `
       <div class="favorite-chip${isSameCity(city, currentCity) ? " active" : ""}">
-        <button type="button" class="favorite-chip-btn" data-fav-index="${index}">${city.name}</button>
+        <button type="button" class="favorite-chip-btn" data-fav-index="${index}">
+          <span class="favorite-chip-name">${city.name}</span>
+          <span class="favorite-chip-meta">
+            <span class="favorite-chip-temp" data-fav-temp="${index}">--°</span>
+            <span class="favorite-chip-icon" data-fav-icon="${index}" aria-hidden="true"></span>
+          </span>
+        </button>
         <button type="button" class="favorite-chip-remove" data-fav-remove="${index}" aria-label="移除${city.name}">×</button>
       </div>`
     )
     .join("");
+
+  fillFavoriteSnapshots(list);
+}
+
+async function fillFavoriteSnapshots(list) {
+  const token = ++favoritesSnapToken;
+  const results = await Promise.all(
+    list.map(async (city) => {
+      try {
+        const weather = await fetchWeather(city.latitude, city.longitude, 1);
+        const current = weather?.current;
+        if (!current) return null;
+        return {
+          temp: Math.round(current.temperature_2m),
+          code: current.weather_code ?? 3,
+          hour: localHourFromIso(current.time),
+        };
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  if (token !== favoritesSnapToken) return;
+
+  results.forEach((snap, index) => {
+    const tempEl = els.favoriteChips?.querySelector(`[data-fav-temp="${index}"]`);
+    const iconEl = els.favoriteChips?.querySelector(`[data-fav-icon="${index}"]`);
+    if (!tempEl || !iconEl || !snap) return;
+    tempEl.textContent = `${snap.temp}°`;
+    iconEl.innerHTML = iconSvg("mini", snap.code, snap.hour);
+  });
 }
 
 function toggleFavorite() {
@@ -801,8 +926,10 @@ function renderRainAlert(weather) {
 function renderWeatherExtras(current) {
   const feels = Math.round(current.apparent_temperature ?? current.temperature_2m);
   const wind = Math.round(current.wind_speed_10m ?? 0);
+  const windDir = windDirectionLabel(current.wind_direction_10m);
   const uv = Math.round(current.uv_index ?? 0);
-  els.weatherExtras.textContent = `體感 ${feels}°C · 風速 ${wind} km/h · UV ${uv}（${uvLevelLabel(uv)}）`;
+  const windText = windDir ? `${windDir}風 ${wind} km/h` : `風速 ${wind} km/h`;
+  els.weatherExtras.textContent = `體感 ${feels}°C · ${windText} · UV ${uv}（${uvLevelLabel(uv)}）`;
 }
 
 function formatClockTime(iso) {
@@ -896,6 +1023,7 @@ function clearWeatherOnError() {
   els.weatherDesc.textContent = "查詢失敗，請重新搜尋";
   els.currentTemp.textContent = "--°C";
   els.weatherExtras.textContent = "";
+  clearAirQuality();
   if (els.weatherSun) els.weatherSun.textContent = "";
   els.weatherIcon.innerHTML = iconSvg("cloud");
   els.hourlyForecast.innerHTML = "";
@@ -1864,7 +1992,7 @@ async function fetchWeather(latitude, longitude, days = 5) {
   url.searchParams.set("longitude", longitude);
   url.searchParams.set(
     "current",
-    "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m,uv_index,is_day"
+    "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m,wind_direction_10m,uv_index,is_day"
   );
   url.searchParams.set("hourly", "temperature_2m,weather_code,precipitation_probability");
   url.searchParams.set(
@@ -3435,7 +3563,9 @@ function renderWeather(city, weather) {
   renderHourly(weather.hourly, current.time);
   renderDaily(weather.daily);
   renderRainAlert(weather);
-  renderOutfit(temp, code);
+  const feels = Math.round(current.apparent_temperature ?? current.temperature_2m);
+  renderOutfit(feels, code);
+  loadAirQuality(currentCity.latitude, currentCity.longitude);
   loadNearbyPlaces(currentCity.latitude, currentCity.longitude);
   updateFavoriteBtn();
   renderFavorites();
