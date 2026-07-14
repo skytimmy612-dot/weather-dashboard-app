@@ -21,7 +21,7 @@
 
 ### 天氣
 
-- 查詢全球城市即時天氣（Open-Meteo，免 API Key）
+- 查詢全球城市即時天氣（Open-Meteo 為主；失敗時自動改用 wttr.in 備援）
 - 定位查詢目前位置天氣
 - 顯示溫度、天氣描述、濕度、體感溫度、風向／風速、UV 指數、日出／日落
 - **空氣品質**：US AQI、PM2.5 與簡短外出建議（Open-Meteo Air Quality）
@@ -162,7 +162,7 @@ git push origin main
 
 | 用途 | 服務 |
 |------|------|
-| 天氣／地理編碼 | [Open-Meteo Weather](https://open-meteo.com/en/docs)、[Geocoding](https://open-meteo.com/en/docs/geocoding-api) |
+| 天氣／地理編碼 | [Open-Meteo Weather](https://open-meteo.com/en/docs)、[Geocoding](https://open-meteo.com/en/docs/geocoding-api)；天氣失敗時備援 [wttr.in](https://wttr.in/)（`format=j1`） |
 | 空氣品質 | [Open-Meteo Air Quality](https://open-meteo.com/en/docs/air-quality-api) |
 | 匯率（相對 TWD） | [ExchangeRate-API Open Access](https://www.exchangerate-api.com/docs/free)（`open.er-api.com`，免 Key） |
 | 地名 fallback | [Photon](https://photon.komoot.io/)（OpenStreetMap） |

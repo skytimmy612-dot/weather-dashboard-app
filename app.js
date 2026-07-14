@@ -1,6 +1,7 @@
 const GEO_API = "https://geocoding-api.open-meteo.com/v1/search";
 const PHOTON_API = "https://photon.komoot.io/api/";
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast";
+const WEATHER_FALLBACK_API = "https://wttr.in";
 const AIR_QUALITY_API = "https://air-quality-api.open-meteo.com/v1/air-quality";
 const FX_API = "https://open.er-api.com/v6/latest/TWD";
 const REVERSE_GEO_API = "https://api.bigdatacloud.net/data/reverse-geocode-client";
@@ -2414,7 +2415,7 @@ async function geocodeCity(name) {
   );
 }
 
-async function fetchWeather(latitude, longitude, days = 5) {
+async function fetchOpenMeteoWeather(latitude, longitude, days = 5) {
   const url = new URL(WEATHER_API);
   url.searchParams.set("latitude", latitude);
   url.searchParams.set("longitude", longitude);
@@ -2432,7 +2433,237 @@ async function fetchWeather(latitude, longitude, days = 5) {
 
   const res = await fetchWithTimeout(url.toString());
   if (!res.ok) throw new Error("天氣服務暫時無法使用");
-  return res.json();
+  const data = await res.json();
+  if (!data?.current) throw new Error("天氣資料無效");
+  data._source = "open-meteo";
+  return data;
+}
+
+/** WorldWeatherOnline weatherCode → approximate WMO code used by this app */
+const WWO_TO_WMO = {
+  113: 0,
+  116: 2,
+  119: 3,
+  122: 3,
+  143: 45,
+  176: 61,
+  179: 71,
+  182: 61,
+  185: 51,
+  200: 95,
+  227: 71,
+  230: 75,
+  248: 45,
+  260: 48,
+  263: 51,
+  266: 51,
+  281: 51,
+  284: 55,
+  293: 61,
+  296: 61,
+  299: 63,
+  302: 63,
+  305: 65,
+  308: 65,
+  311: 61,
+  314: 65,
+  317: 61,
+  320: 63,
+  323: 71,
+  326: 71,
+  329: 73,
+  332: 73,
+  335: 75,
+  338: 75,
+  350: 77,
+  353: 80,
+  356: 81,
+  359: 82,
+  362: 80,
+  365: 81,
+  368: 85,
+  371: 86,
+  374: 80,
+  377: 81,
+  386: 95,
+  389: 95,
+  392: 96,
+  395: 96,
+};
+
+function mapWwoWeatherCode(code) {
+  const n = Number(code);
+  if (!Number.isFinite(n)) return 3;
+  return WWO_TO_WMO[n] ?? 3;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseWttrHourValue(timeStr) {
+  const n = Number(String(timeStr ?? "0").replace(/\D/g, ""));
+  if (!Number.isFinite(n)) return 0;
+  return Math.floor(n / 100);
+}
+
+function parseWttrClockToIso(dateStr, clockStr) {
+  if (!dateStr || !clockStr) return "";
+  const m = String(clockStr).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return `${dateStr}T12:00`;
+  let hour = Number(m[1]) % 12;
+  if (/PM/i.test(m[3])) hour += 12;
+  const minute = m[2];
+  return `${dateStr}T${String(hour).padStart(2, "0")}:${minute}`;
+}
+
+function wttrIsDay(current, astronomy) {
+  const obs = String(current?.localObsDateTime || current?.observation_time || "");
+  const sunrise = astronomy?.sunrise;
+  const sunset = astronomy?.sunset;
+  if (!obs || !sunrise || !sunset) {
+    const hour = new Date().getHours();
+    return hour >= 6 && hour < 19 ? 1 : 0;
+  }
+  const m = obs.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m) return 1;
+  let hour = Number(m[1]) % 12;
+  if (/PM/i.test(m[3])) hour += 12;
+  const toMinutes = (clock) => {
+    const cm = String(clock).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!cm) return 0;
+    let h = Number(cm[1]) % 12;
+    if (/PM/i.test(cm[3])) h += 12;
+    return h * 60 + Number(cm[2]);
+  };
+  const nowMin = hour * 60 + Number(m[2]);
+  return nowMin >= toMinutes(sunrise) && nowMin < toMinutes(sunset) ? 1 : 0;
+}
+
+function normalizeWttrWeather(data, days = 5) {
+  const currentRaw = data?.current_condition?.[0];
+  const weatherDays = Array.isArray(data?.weather) ? data.weather : [];
+  if (!currentRaw || !weatherDays.length) {
+    throw new Error("備援天氣資料無效");
+  }
+
+  const today = weatherDays[0];
+  const astronomy = today?.astronomy?.[0] || {};
+  const dateStr = today?.date || new Date().toISOString().slice(0, 10);
+  const obsHour = (() => {
+    const m = String(currentRaw.localObsDateTime || "").match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (!m) return new Date().getHours();
+    let hour = Number(m[1]) % 12;
+    if (/PM/i.test(m[3])) hour += 12;
+    return hour;
+  })();
+  const currentTime = `${dateStr}T${String(obsHour).padStart(2, "0")}:00`;
+
+  const current = {
+    time: currentTime,
+    temperature_2m: Number(currentRaw.temp_C),
+    relative_humidity_2m: Number(currentRaw.humidity),
+    weather_code: mapWwoWeatherCode(currentRaw.weatherCode),
+    apparent_temperature: Number(currentRaw.FeelsLikeC ?? currentRaw.temp_C),
+    wind_speed_10m: Number(currentRaw.windspeedKmph),
+    wind_direction_10m: Number(currentRaw.winddirDegree),
+    uv_index: Number(currentRaw.uvIndex ?? 0),
+    is_day: wttrIsDay(currentRaw, astronomy),
+  };
+
+  const hourly = {
+    time: [],
+    temperature_2m: [],
+    weather_code: [],
+    precipitation_probability: [],
+  };
+
+  for (const day of weatherDays) {
+    const dayDate = day.date;
+    const hours = Array.isArray(day.hourly) ? day.hourly : [];
+    for (const slot of hours) {
+      const hour = parseWttrHourValue(slot.time);
+      const iso = `${dayDate}T${String(hour).padStart(2, "0")}:00`;
+      if (dayDate === dateStr && hour < obsHour) continue;
+      hourly.time.push(iso);
+      hourly.temperature_2m.push(Number(slot.tempC));
+      hourly.weather_code.push(mapWwoWeatherCode(slot.weatherCode));
+      hourly.precipitation_probability.push(Number(slot.chanceofrain ?? 0));
+      if (hourly.time.length >= 48) break;
+    }
+    if (hourly.time.length >= 48) break;
+  }
+
+  if (!hourly.time.length) {
+    hourly.time.push(currentTime);
+    hourly.temperature_2m.push(current.temperature_2m);
+    hourly.weather_code.push(current.weather_code);
+    hourly.precipitation_probability.push(0);
+  }
+
+  const dailyCount = Math.min(days, weatherDays.length, MAX_FORECAST_DAYS);
+  const daily = {
+    time: [],
+    temperature_2m_max: [],
+    temperature_2m_min: [],
+    weather_code: [],
+    precipitation_probability_max: [],
+    sunrise: [],
+    sunset: [],
+  };
+
+  for (let i = 0; i < dailyCount; i += 1) {
+    const day = weatherDays[i];
+    const hours = Array.isArray(day.hourly) ? day.hourly : [];
+    const noon = hours.find((h) => parseWttrHourValue(h.time) === 12) || hours[Math.floor(hours.length / 2)] || {};
+    const precipMax = hours.reduce((max, h) => Math.max(max, Number(h.chanceofrain ?? 0)), 0);
+    const astro = day.astronomy?.[0] || {};
+    daily.time.push(day.date);
+    daily.temperature_2m_max.push(Number(day.maxtempC));
+    daily.temperature_2m_min.push(Number(day.mintempC));
+    daily.weather_code.push(mapWwoWeatherCode(noon.weatherCode ?? currentRaw.weatherCode));
+    daily.precipitation_probability_max.push(precipMax);
+    daily.sunrise.push(parseWttrClockToIso(day.date, astro.sunrise));
+    daily.sunset.push(parseWttrClockToIso(day.date, astro.sunset));
+  }
+
+  return {
+    latitude: Number(data?.nearest_area?.[0]?.latitude) || undefined,
+    longitude: Number(data?.nearest_area?.[0]?.longitude) || undefined,
+    current,
+    hourly,
+    daily,
+    _source: "wttr",
+  };
+}
+
+async function fetchWttrWeather(latitude, longitude, days = 5) {
+  const url = `${WEATHER_FALLBACK_API}/${latitude},${longitude}?format=j1&lang=zh`;
+  const res = await fetchWithTimeout(url, 15000);
+  if (!res.ok) throw new Error("備援天氣服務暫時無法使用");
+  const data = await res.json();
+  return normalizeWttrWeather(data, days);
+}
+
+async function fetchWeather(latitude, longitude, days = 5) {
+  try {
+    return await fetchOpenMeteoWeather(latitude, longitude, days);
+  } catch {
+    // retry once
+  }
+
+  try {
+    await sleep(400);
+    return await fetchOpenMeteoWeather(latitude, longitude, days);
+  } catch {
+    // fall through to wttr
+  }
+
+  try {
+    return await fetchWttrWeather(latitude, longitude, days);
+  } catch {
+    throw new Error("天氣服務暫時無法使用");
+  }
 }
 
 function parseTravelQuery(input) {
@@ -3966,8 +4197,11 @@ function renderDaily(daily, displayDays = getEffectiveDailyDisplayDays()) {
   );
 }
 
-function setSearchHint(cityName, isLive = true) {
-  const suffix = isLive ? "（即時天氣資料）" : "（按查詢取得即時天氣資訊）";
+function setSearchHint(cityName, isLive = true, source = "open-meteo") {
+  let suffix = "（按查詢取得即時天氣資訊）";
+  if (isLive) {
+    suffix = source === "wttr" ? "（備援天氣來源）" : "（即時天氣資料）";
+  }
   els.searchHint.textContent = `目前顯示：${cityName}${suffix}`;
 }
 
@@ -3988,7 +4222,7 @@ function renderWeather(city, weather) {
   const localHour = localHourFromIso(current.time);
 
   els.cityInput.value = city.name;
-  setSearchHint(city.name, true);
+  setSearchHint(city.name, true, weather._source === "wttr" ? "wttr" : "open-meteo");
   els.currentTemp.textContent = `${temp}°C`;
   els.weatherDesc.textContent = `${label} · 濕度 ${humidity}%`;
   renderWeatherExtras(current);
