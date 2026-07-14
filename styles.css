@@ -28,6 +28,8 @@
   --error-text: #9b2c2c;
   --alert-bg: #e8f2fc;
   --alert-text: #2b4f8a;
+  --rate-card-bg: #fff6e0;
+  --rate-card-border: #e8d4a8;
   --radius-lg: 1.5rem;
   --radius-md: 1.125rem;
   --radius-sm: 0.75rem;
@@ -66,6 +68,8 @@ html[data-theme="dark"] {
   --error-text: #f0a8a8;
   --alert-bg: #1a2a3d;
   --alert-text: #9ec0ef;
+  --rate-card-bg: #3a3220;
+  --rate-card-border: #6b5a38;
   color-scheme: dark;
 }
 
@@ -506,8 +510,8 @@ html[data-theme="dark"] .theme-btn .theme-icon-sun {
   gap: 0.65rem;
   padding: 0.7rem 0.9rem;
   border-radius: var(--radius-md);
-  background: var(--white);
-  border: 1px solid var(--border);
+  background: var(--rate-card-bg);
+  border: 1px solid var(--rate-card-border);
   color: var(--text);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
