@@ -2,6 +2,7 @@ const GEO_API = "https://geocoding-api.open-meteo.com/v1/search";
 const PHOTON_API = "https://photon.komoot.io/api/";
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast";
 const AIR_QUALITY_API = "https://air-quality-api.open-meteo.com/v1/air-quality";
+const FX_API = "https://open.er-api.com/v6/latest/TWD";
 const REVERSE_GEO_API = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 const PLACES_API = "https://places.googleapis.com/v1/places:searchText";
 
@@ -169,11 +170,68 @@ const FALLBACK_CITIES = {
 };
 
 const OVERSEAS_FALLBACK_CITIES = {
-  那霸: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
-  那覇: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
-  Naha: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
-  沖繩: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
-  沖縄: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩" },
+  那霸: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩", countryCode: "JP" },
+  那覇: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩", countryCode: "JP" },
+  Naha: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩", countryCode: "JP" },
+  沖繩: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩", countryCode: "JP" },
+  沖縄: { name: "那霸", latitude: 26.2124, longitude: 127.6809, region: "日本・沖繩", countryCode: "JP" },
+};
+
+/** ISO 3166-1 alpha-2 → ISO 4217 */
+const COUNTRY_CURRENCY = {
+  TW: "TWD",
+  JP: "JPY",
+  US: "USD",
+  CN: "CNY",
+  HK: "HKD",
+  MO: "MOP",
+  KR: "KRW",
+  GB: "GBP",
+  AU: "AUD",
+  NZ: "NZD",
+  CA: "CAD",
+  SG: "SGD",
+  MY: "MYR",
+  TH: "THB",
+  VN: "VND",
+  PH: "PHP",
+  ID: "IDR",
+  IN: "INR",
+  AE: "AED",
+  SA: "SAR",
+  TR: "TRY",
+  RU: "RUB",
+  BR: "BRL",
+  MX: "MXN",
+  CH: "CHF",
+  SE: "SEK",
+  NO: "NOK",
+  DK: "DKK",
+  PL: "PLN",
+  CZ: "CZK",
+  HU: "HUF",
+  IS: "ISK",
+  ZA: "ZAR",
+  AT: "EUR",
+  BE: "EUR",
+  DE: "EUR",
+  ES: "EUR",
+  FI: "EUR",
+  FR: "EUR",
+  GR: "EUR",
+  IE: "EUR",
+  IT: "EUR",
+  LU: "EUR",
+  NL: "EUR",
+  PT: "EUR",
+  SK: "EUR",
+  SI: "EUR",
+  EE: "EUR",
+  LV: "EUR",
+  LT: "EUR",
+  MT: "EUR",
+  CY: "EUR",
+  HR: "EUR",
 };
 
 const OKINAWA_SEARCH_TERMS = new Set([
@@ -197,6 +255,8 @@ const els = {
   weatherDesc: $("weatherDesc"),
   weatherExtras: $("weatherExtras"),
   weatherAqi: $("weatherAqi"),
+  weatherRate: $("weatherRate"),
+  rateCard: $("rateCard"),
   weatherSun: $("weatherSun"),
   weatherIcon: $("weatherIcon"),
   weatherFx: $("weatherFx"),
@@ -260,6 +320,9 @@ let autocompleteBlurTimer = null;
 let pullRefreshing = false;
 let airQualityToken = 0;
 let favoritesSnapToken = 0;
+let exchangeRateToken = 0;
+let twdRatesCache = { rates: null, fetchedAt: 0 };
+const TWD_RATES_TTL_MS = 6 * 60 * 60 * 1000;
 
 const PULL_THRESHOLD = 72;
 const PULL_MAX = 120;
@@ -528,6 +591,134 @@ async function loadAirQuality(latitude, longitude) {
   } catch {
     if (token !== airQualityToken) return;
     clearAirQuality();
+  }
+}
+
+function clearExchangeRate() {
+  if (els.weatherRate) els.weatherRate.textContent = "";
+  if (els.rateCard) els.rateCard.classList.add("hidden");
+}
+
+function showExchangeRate(text) {
+  if (!els.weatherRate || !els.rateCard) return;
+  els.weatherRate.textContent = text;
+  els.rateCard.classList.remove("hidden");
+}
+
+function currencyForCountry(countryCode) {
+  if (!countryCode) return null;
+  return COUNTRY_CURRENCY[String(countryCode).toUpperCase()] ?? null;
+}
+
+function countryDisplayName(countryCode) {
+  const code = String(countryCode || "").toUpperCase();
+  if (!code) return "";
+  try {
+    const name = new Intl.DisplayNames(["zh-Hant"], { type: "region" }).of(code);
+    return name || code;
+  } catch {
+    return code;
+  }
+}
+
+function formatFxNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(2);
+  if (n >= 1) return n.toFixed(2);
+  if (n >= 0.1) return n.toFixed(3);
+  return n.toFixed(4);
+}
+
+function normalizeCountryCode(raw) {
+  if (!raw) return "";
+  const code = String(raw).trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : "";
+}
+
+async function resolveCountryCode(city) {
+  const fromCity = normalizeCountryCode(city?.countryCode || city?.country_code);
+  if (fromCity) return fromCity;
+
+  if (city?.name && isTaiwanCityName(city.name)) return "TW";
+  if (city?.latitude != null && city?.longitude != null && isInTaiwan(city.latitude, city.longitude)) {
+    return "TW";
+  }
+
+  if (city?.latitude == null || city?.longitude == null) return "";
+
+  const geo = await reverseGeocode(city.latitude, city.longitude);
+  return normalizeCountryCode(geo?.countryCode);
+}
+
+async function fetchTwdRates() {
+  const now = Date.now();
+  if (twdRatesCache.rates && now - twdRatesCache.fetchedAt < TWD_RATES_TTL_MS) {
+    return twdRatesCache.rates;
+  }
+
+  const res = await fetchWithTimeout(FX_API);
+  if (!res.ok) throw new Error("匯率服務暫時無法使用");
+  const data = await res.json();
+  if (data?.result !== "success" || !data?.rates) {
+    throw new Error("匯率資料無效");
+  }
+
+  twdRatesCache = { rates: data.rates, fetchedAt: now };
+  return data.rates;
+}
+
+function formatFxPair(currency, ratePerTwd) {
+  const foreignPerTwd = Number(ratePerTwd);
+  if (!Number.isFinite(foreignPerTwd) || foreignPerTwd <= 0) return "";
+  const twdPerForeign = 1 / foreignPerTwd;
+  return `1 ${currency} ≈ ${formatFxNumber(twdPerForeign)} TWD · 1 TWD ≈ ${formatFxNumber(foreignPerTwd)} ${currency}`;
+}
+
+async function loadExchangeRate(city) {
+  if (!els.weatherRate || !els.rateCard) return;
+  const token = ++exchangeRateToken;
+
+  try {
+    const countryCode = await resolveCountryCode(city);
+    if (token !== exchangeRateToken) return;
+
+    if (!countryCode) {
+      clearExchangeRate();
+      return;
+    }
+
+    if (city && !city.countryCode) city.countryCode = countryCode;
+    if (currentCity) currentCity.countryCode = countryCode;
+
+    const currency = currencyForCountry(countryCode);
+    const countryName = countryDisplayName(countryCode);
+
+    if (!currency) {
+      clearExchangeRate();
+      return;
+    }
+
+    if (currency === "TWD") {
+      showExchangeRate(`${countryName || "台灣"} · 當地為新台幣`);
+      return;
+    }
+
+    const rates = await fetchTwdRates();
+    if (token !== exchangeRateToken) return;
+
+    const rate = rates[currency];
+    const pair = formatFxPair(currency, rate);
+    if (!pair) {
+      clearExchangeRate();
+      return;
+    }
+
+    showExchangeRate(`${countryName || currency} · ${pair}`);
+  } catch {
+    if (token !== exchangeRateToken) return;
+    clearExchangeRate();
   }
 }
 
@@ -1233,6 +1424,7 @@ function clearWeatherOnError() {
   els.currentTemp.textContent = "--°C";
   els.weatherExtras.textContent = "";
   clearAirQuality();
+  clearExchangeRate();
   if (els.weatherSun) els.weatherSun.textContent = "";
   els.weatherIcon.innerHTML = iconSvg("cloud");
   els.hourlyForecast.innerHTML = "";
@@ -2140,9 +2332,15 @@ async function geocodeCity(name) {
     if (meteoResults.length) {
       const best = pickBestResult(meteoResults, variant);
       const resolved = resolveTaiwanCityCoords(best, name);
+      const countryCode =
+        normalizeCountryCode(resolved.country_code || resolved.countryCode) ||
+        (isTaiwanCityName(name) || isInTaiwan(resolved.latitude, resolved.longitude)
+          ? "TW"
+          : "");
       return {
         ...resolved,
         name: resolveDisplayName(name, resolved, variant),
+        countryCode,
       };
     }
 
@@ -2157,6 +2355,7 @@ async function geocodeCity(name) {
           latitude: best.latitude,
           longitude: best.longitude,
           name: resolveDisplayName(name, best, variant),
+          countryCode: isTaiwanCityName(name) || isInTaiwan(best.latitude, best.longitude) ? "TW" : "",
         };
       }
     }
@@ -2164,30 +2363,50 @@ async function geocodeCity(name) {
     if (photonResult.status === "fulfilled" && photonResult.value.length) {
       const best = pickBestPhoton(photonResult.value, variant, photonBias);
       if (best) {
+        const photonCountry = normalizeCountryCode(
+          best.props?.countrycode || best.props?.countryCode
+        );
         const resolved = resolveTaiwanCityCoords(
           {
             latitude: best.latitude,
             longitude: best.longitude,
             name: resolveDisplayName(name, best, variant),
+            countryCode: photonCountry,
           },
           name
         );
-        return resolved;
+        return {
+          ...resolved,
+          countryCode:
+            normalizeCountryCode(resolved.countryCode) ||
+            (isTaiwanCityName(name) || isInTaiwan(resolved.latitude, resolved.longitude)
+              ? "TW"
+              : photonCountry),
+        };
       }
     }
   }
 
   if (isTaiwanCityName(name)) {
     for (const variant of variants) {
-      if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
+      if (FALLBACK_CITIES[variant]) {
+        return { ...FALLBACK_CITIES[variant], countryCode: "TW" };
+      }
     }
   }
 
   const overseasFallback = lookupOverseasFallback(name);
-  if (overseasFallback) return { ...overseasFallback };
+  if (overseasFallback) {
+    return {
+      ...overseasFallback,
+      countryCode: overseasFallback.countryCode || "",
+    };
+  }
 
   for (const variant of variants) {
-    if (FALLBACK_CITIES[variant]) return { ...FALLBACK_CITIES[variant] };
+    if (FALLBACK_CITIES[variant]) {
+      return { ...FALLBACK_CITIES[variant], countryCode: "TW" };
+    }
   }
 
   throw new Error(
@@ -2614,7 +2833,10 @@ async function reverseGeocode(latitude, longitude) {
     if (data.locality) parts.push(data.locality);
     if (data.city && data.city !== data.locality) parts.push(data.city);
     if (!parts.length && data.countryName) parts.push(data.countryName);
-    return parts.length ? parts.join(", ") : null;
+    const name = parts.length ? parts.join(", ") : null;
+    const countryCode = normalizeCountryCode(data.countryCode || data.country_code);
+    if (!name && !countryCode) return null;
+    return { name: name || data.countryName || "我的位置", countryCode };
   } catch {
     return null;
   }
@@ -2635,11 +2857,16 @@ async function queryByCoords(latitude, longitude) {
   setLoading(true);
   clearTravelSummary();
   try {
-    const [weather, placeName] = await Promise.all([
+    const [weather, placeInfo] = await Promise.all([
       fetchWeather(latitude, longitude, MAX_FORECAST_DAYS),
       reverseGeocode(latitude, longitude),
     ]);
-    const city = { name: placeName ?? "我的位置", latitude, longitude };
+    const city = {
+      name: placeInfo?.name ?? "我的位置",
+      latitude,
+      longitude,
+      countryCode: placeInfo?.countryCode || "",
+    };
     renderWeather(city, weather);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(city));
   } catch (err) {
@@ -3749,6 +3976,7 @@ function renderWeather(city, weather) {
     name: city.name,
     latitude: city.latitude ?? currentCity.latitude,
     longitude: city.longitude ?? currentCity.longitude,
+    countryCode: city.countryCode || city.country_code || currentCity.countryCode || "",
   };
 
   const current = weather.current;
@@ -3775,6 +4003,7 @@ function renderWeather(city, weather) {
   const feels = Math.round(current.apparent_temperature ?? current.temperature_2m);
   renderOutfit(feels, code);
   loadAirQuality(currentCity.latitude, currentCity.longitude);
+  loadExchangeRate(currentCity);
   loadNearbyPlaces(currentCity.latitude, currentCity.longitude);
   updateFavoriteBtn();
   renderFavorites();
@@ -4026,7 +4255,7 @@ function bindEvents() {
 function registerServiceWorker() {
   if (location.protocol === "file:") return;
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("sw.js?v=4").catch(() => {
+  navigator.serviceWorker.register("sw.js?v=5").catch(() => {
     // 註冊失敗不影響主功能
   });
 }

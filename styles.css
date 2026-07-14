@@ -500,6 +500,37 @@ html[data-theme="dark"] .theme-btn .theme-icon-sun {
   color: var(--alert-text);
 }
 
+.rate-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--white);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.rate-card-label {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--brown);
+  line-height: 1.45;
+  padding-top: 0.05rem;
+}
+
+.rate-card-body {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--text-mid);
+  line-height: 1.45;
+}
+
 .app {
   flex: 1;
   padding: 1.25rem 1.25rem calc(7.5rem + var(--safe-bottom));

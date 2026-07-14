@@ -25,6 +25,7 @@
 - 定位查詢目前位置天氣
 - 顯示溫度、天氣描述、濕度、體感溫度、風向／風速、UV 指數、日出／日落
 - **空氣品質**：US AQI、PM2.5 與簡短外出建議（Open-Meteo Air Quality）
+- **匯率**：天氣卡上方小卡片，依查詢地國家顯示當地貨幣與新台幣雙向匯率（台灣標示當地為新台幣）
 - **24 小時**時段預報（橫向捲動：溫度、天氣圖示、降雨機率）
 - **5／7／16 日**每日預報切換（偏好存 localStorage；一次取滿 16 天資料）
 - 降雨／帶傘提醒
@@ -163,6 +164,7 @@ git push origin main
 |------|------|
 | 天氣／地理編碼 | [Open-Meteo Weather](https://open-meteo.com/en/docs)、[Geocoding](https://open-meteo.com/en/docs/geocoding-api) |
 | 空氣品質 | [Open-Meteo Air Quality](https://open-meteo.com/en/docs/air-quality-api) |
+| 匯率（相對 TWD） | [ExchangeRate-API Open Access](https://www.exchangerate-api.com/docs/free)（`open.er-api.com`，免 Key） |
 | 地名 fallback | [Photon](https://photon.komoot.io/)（OpenStreetMap） |
 | 反向地理編碼 | [BigDataCloud](https://www.bigdatacloud.com/docs/api/free-reverse-geocode-to-city-api) |
 | 美食／景點／地名輔助 | [Google Places API (New)](https://developers.google.com/maps/documentation/places/web-service/overview) |

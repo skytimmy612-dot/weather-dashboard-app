@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" content="default" />
   <meta name="apple-mobile-web-app-title" content="天氣" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=20260743" />
+  <link rel="stylesheet" href="styles.css?v=20260745" />
   <script>
     (function () {
       try {
@@ -74,6 +74,11 @@
 
       <div class="loading hidden" id="loading">查詢天氣中…</div>
       <div class="error hidden" id="error"></div>
+
+      <section class="rate-card hidden" id="rateCard" aria-label="匯率">
+        <p class="rate-card-label">匯率</p>
+        <p class="rate-card-body" id="weatherRate"></p>
+      </section>
 
       <section class="card card-weather" aria-labelledby="weatherTitle">
         <div class="weather-fx" id="weatherFx" aria-hidden="true"></div>
@@ -191,6 +196,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260743" defer></script>
+  <script src="app.js?v=20260745" defer></script>
 </body>
 </html>
