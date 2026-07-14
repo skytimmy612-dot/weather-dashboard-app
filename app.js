@@ -680,6 +680,7 @@ function formatFxPair(currency, ratePerTwd) {
 async function loadExchangeRate(city) {
   if (!els.weatherRate || !els.rateCard) return;
   const token = ++exchangeRateToken;
+  clearExchangeRate();
 
   try {
     const countryCode = await resolveCountryCode(city);
@@ -691,7 +692,9 @@ async function loadExchangeRate(city) {
     }
 
     if (city && !city.countryCode) city.countryCode = countryCode;
-    if (currentCity) currentCity.countryCode = countryCode;
+    if (currentCity && isSameCity(currentCity, city)) {
+      currentCity.countryCode = countryCode;
+    }
 
     const currency = currencyForCountry(countryCode);
     const countryName = countryDisplayName(countryCode);
@@ -4210,7 +4213,8 @@ function renderWeather(city, weather) {
     name: city.name,
     latitude: city.latitude ?? currentCity.latitude,
     longitude: city.longitude ?? currentCity.longitude,
-    countryCode: city.countryCode || city.country_code || currentCity.countryCode || "",
+    // Do not inherit previous city's countryCode — empty triggers reverse geocode.
+    countryCode: city.countryCode || city.country_code || "",
   };
 
   const current = weather.current;
