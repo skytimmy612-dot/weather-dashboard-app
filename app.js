@@ -223,6 +223,8 @@ const els = {
   travelSummary: $("travelSummary"),
   travelDays: $("travelDays"),
   travelTitle: $("travelTitle"),
+  exportMarkdownBtn: $("exportMarkdownBtn"),
+  exportImageBtn: $("exportImageBtn"),
   locateBtn: $("locateBtn"),
   navBtns: document.querySelectorAll(".nav-btn"),
   cards: {
@@ -980,6 +982,213 @@ function buildTravelShareText(ctx) {
   }
 
   return lines.join("\n").trim();
+}
+
+function buildTravelMarkdown(ctx) {
+  const lines = [`# ${ctx.cityName} 行程（${ctx.dateRange}）`, ""];
+
+  for (const day of ctx.tripDays) {
+    lines.push(`## ${day.dateLabel}`);
+    if (day.outOfRange) {
+      const cutoff = ctx.forecastLastDate
+        ? formatForecastCutoffLabel(ctx.forecastLastDate)
+        : `${MAX_FORECAST_DAYS} 天`;
+      lines.push(`- 超出預報範圍（可預報至 ${cutoff}）`);
+      lines.push("");
+      continue;
+    }
+
+    lines.push(`- 天氣：${day.label} · ${day.maxTemp}° / ${day.minTemp}°`);
+    if (day.precipMax >= 50 || isRainy(day.code)) {
+      lines.push("- 建議攜帶雨具");
+    }
+    if (day.outfit?.length) {
+      lines.push(`- 穿搭：${day.outfit.map((item) => item.label).join("、")}`);
+    }
+    if (day.restaurant) {
+      lines.push(`- 美食：${day.restaurant.name} ★${day.restaurant.rating.toFixed(1)}`);
+    }
+    if (day.sight) {
+      lines.push(`- 景點：${day.sight.name} ★${day.sight.rating.toFixed(1)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function copyTravelMarkdown() {
+  if (!travelShareContext) {
+    setError("請先查詢旅遊行程");
+    setTimeout(() => setError(""), 2500);
+    return;
+  }
+
+  const markdown = buildTravelMarkdown(travelShareContext);
+  try {
+    await navigator.clipboard.writeText(markdown);
+    setError("已複製 Markdown");
+    setTimeout(() => setError(""), 2500);
+  } catch {
+    setError("無法複製到剪貼簿");
+    setTimeout(() => setError(""), 2500);
+  }
+}
+
+function canvasFitText(g, text, maxWidth) {
+  const str = String(text ?? "");
+  if (g.measureText(str).width <= maxWidth) return str;
+  let out = str;
+  while (out.length > 1 && g.measureText(`${out}…`).width > maxWidth) {
+    out = out.slice(0, -1);
+  }
+  return `${out}…`;
+}
+
+function buildTravelExportCanvas(ctx) {
+  const isDark = document.documentElement.dataset.theme === "dark";
+  const width = 720;
+  const pad = 36;
+  const dayGap = 16;
+  const lineH = 26;
+  const titleH = 44;
+  const subtitleH = 28;
+  const dayTitleH = 32;
+  const dayPad = 20;
+  const textMax = width - pad * 2 - dayPad * 2;
+
+  const dayBlocks = ctx.tripDays.map((day) => {
+    const lines = [];
+    if (day.outOfRange) {
+      const cutoff = ctx.forecastLastDate
+        ? formatForecastCutoffLabel(ctx.forecastLastDate)
+        : `${MAX_FORECAST_DAYS} 天`;
+      lines.push(`超出預報範圍（可預報至 ${cutoff}）`);
+    } else {
+      lines.push(`天氣：${day.label} · ${day.maxTemp}° / ${day.minTemp}°`);
+      if (day.precipMax >= 50 || isRainy(day.code)) lines.push("建議攜帶雨具");
+      if (day.outfit?.length) {
+        lines.push(`穿搭：${day.outfit.map((item) => item.label).join("、")}`);
+      }
+      if (day.restaurant) {
+        lines.push(`美食：${day.restaurant.name} ★${day.restaurant.rating.toFixed(1)}`);
+      }
+      if (day.sight) {
+        lines.push(`景點：${day.sight.name} ★${day.sight.rating.toFixed(1)}`);
+      }
+    }
+    const height = dayPad * 2 + dayTitleH + lines.length * lineH;
+    return { dateLabel: day.dateLabel, lines, height, muted: Boolean(day.outOfRange) };
+  });
+
+  const contentH = dayBlocks.reduce((sum, block, i) => sum + block.height + (i ? dayGap : 0), 0);
+  const height = pad * 2 + titleH + subtitleH + 20 + contentH;
+
+  const canvas = document.createElement("canvas");
+  const scale = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+
+  const g = canvas.getContext("2d");
+  if (!g) throw new Error("無法產生圖片");
+  g.scale(scale, scale);
+
+  const bg = isDark ? "#12151a" : "#f5f5f3";
+  const card = isDark ? "#1c2128" : "#ffffff";
+  const text = isDark ? "#e8eaed" : "#1e1e1e";
+  const muted = isDark ? "#a8adb5" : "#5a5a5a";
+  const accent = isDark ? "#c4a484" : "#785032";
+
+  g.fillStyle = bg;
+  g.fillRect(0, 0, width, height);
+
+  g.fillStyle = text;
+  g.font = "700 28px \"Microsoft JhengHei\", \"PingFang TC\", sans-serif";
+  g.fillText(canvasFitText(g, `${ctx.cityName} 旅遊行程`, width - pad * 2), pad, pad + 28);
+
+  g.fillStyle = accent;
+  g.font = "500 18px \"Microsoft JhengHei\", \"PingFang TC\", sans-serif";
+  g.fillText(ctx.dateRange, pad, pad + titleH + 8);
+
+  let y = pad + titleH + subtitleH + 20;
+  for (const block of dayBlocks) {
+    g.fillStyle = card;
+    g.beginPath();
+    const r = 14;
+    const x = pad;
+    const w = width - pad * 2;
+    const h = block.height;
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+    g.fill();
+
+    g.fillStyle = text;
+    g.font = "700 18px \"Microsoft JhengHei\", \"PingFang TC\", sans-serif";
+    g.fillText(canvasFitText(g, block.dateLabel, textMax), x + dayPad, y + dayPad + 18);
+
+    g.fillStyle = muted;
+    g.font = "400 15px \"Microsoft JhengHei\", \"PingFang TC\", sans-serif";
+    block.lines.forEach((line, i) => {
+      g.fillText(
+        canvasFitText(g, line, textMax),
+        x + dayPad,
+        y + dayPad + dayTitleH + (i + 1) * lineH - 6
+      );
+    });
+
+    y += block.height + dayGap;
+  }
+
+  g.fillStyle = muted;
+  g.font = "400 12px \"Microsoft JhengHei\", \"PingFang TC\", sans-serif";
+  g.fillText("天氣查詢 Dashboard", pad, height - 14);
+
+  return canvas;
+}
+
+function sanitizeDownloadName(name) {
+  return String(name || "行程")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 40);
+}
+
+async function exportTravelImage() {
+  if (!travelShareContext) {
+    setError("請先查詢旅遊行程");
+    setTimeout(() => setError(""), 2500);
+    return;
+  }
+
+  try {
+    const canvas = buildTravelExportCanvas(travelShareContext);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (result) resolve(result);
+        else reject(new Error("無法產生圖片"));
+      }, "image/png");
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${sanitizeDownloadName(travelShareContext.cityName)}-行程.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setError("已下載行程圖片");
+    setTimeout(() => setError(""), 2500);
+  } catch {
+    setError("無法匯出圖片");
+    setTimeout(() => setError(""), 2500);
+  }
 }
 
 function buildShareText() {
@@ -3659,6 +3868,13 @@ function bindEvents() {
   els.locateBtn.addEventListener("click", queryCurrentLocation);
 
   if (els.shareBtn) els.shareBtn.addEventListener("click", shareWeather);
+
+  if (els.exportMarkdownBtn) {
+    els.exportMarkdownBtn.addEventListener("click", copyTravelMarkdown);
+  }
+  if (els.exportImageBtn) {
+    els.exportImageBtn.addEventListener("click", exportTravelImage);
+  }
 
   els.favoriteBtn.addEventListener("click", toggleFavorite);
 

@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" content="default" />
   <meta name="apple-mobile-web-app-title" content="天氣" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=20260741" />
+  <link rel="stylesheet" href="styles.css?v=20260743" />
   <script>
     (function () {
       try {
@@ -154,7 +154,13 @@
       </section>
 
       <section class="card card-travel hidden" id="travelSummary" aria-labelledby="travelTitle">
-        <h2 class="card-title" id="travelTitle">行程摘要</h2>
+        <div class="travel-header">
+          <h2 class="card-title" id="travelTitle">行程摘要</h2>
+          <div class="travel-export" role="group" aria-label="行程匯出">
+            <button type="button" id="exportMarkdownBtn">複製 Markdown</button>
+            <button type="button" id="exportImageBtn">匯出圖片</button>
+          </div>
+        </div>
         <div class="travel-days" id="travelDays"></div>
       </section>
     </main>
@@ -185,6 +191,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260741" defer></script>
+  <script src="app.js?v=20260743" defer></script>
 </body>
 </html>

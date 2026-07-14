@@ -769,6 +769,47 @@ html[data-theme="dark"] .weather-fx.fx-clear.fx-night::after {
   background: var(--travel-card);
 }
 
+.travel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.travel-header .card-title {
+  margin: 0;
+}
+
+.travel-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.travel-export button {
+  border: 1px solid var(--border);
+  background: var(--white);
+  color: var(--brown);
+  font-size: 0.78rem;
+  font-family: inherit;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.travel-export button:hover {
+  background: var(--hover);
+  border-color: var(--chip-active-border);
+}
+
+.travel-export button:focus-visible {
+  outline: 2px solid var(--brown);
+  outline-offset: 2px;
+}
+
 .travel-days {
   display: flex;
   flex-direction: column;
