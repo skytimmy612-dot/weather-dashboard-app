@@ -268,6 +268,9 @@ const els = {
   favoriteChips: $("favoriteChips"),
   hourlyForecast: $("hourlyForecast"),
   dailyForecast: $("dailyForecast"),
+  dayDetail: $("dayDetail"),
+  dayDetailTitle: $("dayDetailTitle"),
+  dayDetailHours: $("dayDetailHours"),
   dailyTitle: $("dailyTitle"),
   forecastToggle: document.querySelector(".forecast-toggle"),
   outfitGrid: $("outfitGrid"),
@@ -311,6 +314,8 @@ let travelSightItems = [];
 let travelShareContext = null;
 let dailyDisplayDays = DEFAULT_DAILY_DISPLAY;
 let currentWeatherDaily = null;
+let currentWeatherHourly = null;
+let selectedDailyIndex = null;
 let travelDailyOverride = null;
 let currentCity = { ...FALLBACK_CITIES[DEFAULT_CITY] };
 let autocompleteItems = [];
@@ -328,7 +333,7 @@ const TWD_RATES_TTL_MS = 6 * 60 * 60 * 1000;
 const PULL_THRESHOLD = 72;
 const PULL_MAX = 120;
 const PULL_RESISTANCE = 0.45;
-const PULL_IGNORE_SELECTOR = ".hourly, .daily.is-scroll, .favorite-chips, .city-suggestions";
+const PULL_IGNORE_SELECTOR = ".hourly, .daily.is-scroll, .day-detail-hours, .favorite-chips, .city-suggestions";
 
 function setLoading(on, message) {
   if (on) {
@@ -1435,6 +1440,8 @@ function clearWeatherOnError() {
   els.dailyForecast.innerHTML = "";
   els.dailyForecast.classList.remove("is-scroll");
   currentWeatherDaily = null;
+  currentWeatherHourly = null;
+  clearDayDetail();
   els.rainAlert.classList.add("hidden");
   els.rainAlert.innerHTML = "";
   if (els.weatherFx) {
@@ -2426,7 +2433,10 @@ async function fetchOpenMeteoWeather(latitude, longitude, days = 5) {
     "current",
     "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,wind_speed_10m,wind_direction_10m,uv_index,is_day"
   );
-  url.searchParams.set("hourly", "temperature_2m,weather_code,precipitation_probability");
+  url.searchParams.set(
+    "hourly",
+    "temperature_2m,weather_code,precipitation_probability,wind_speed_10m"
+  );
   url.searchParams.set(
     "daily",
     "temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max,sunrise,sunset"
@@ -2579,6 +2589,7 @@ function normalizeWttrWeather(data, days = 5) {
     temperature_2m: [],
     weather_code: [],
     precipitation_probability: [],
+    wind_speed_10m: [],
   };
 
   for (const day of weatherDays) {
@@ -2592,6 +2603,7 @@ function normalizeWttrWeather(data, days = 5) {
       hourly.temperature_2m.push(Number(slot.tempC));
       hourly.weather_code.push(mapWwoWeatherCode(slot.weatherCode));
       hourly.precipitation_probability.push(Number(slot.chanceofrain ?? 0));
+      hourly.wind_speed_10m.push(Number(slot.windspeedKmph ?? 0));
       if (hourly.time.length >= 48) break;
     }
     if (hourly.time.length >= 48) break;
@@ -2602,6 +2614,7 @@ function normalizeWttrWeather(data, days = 5) {
     hourly.temperature_2m.push(current.temperature_2m);
     hourly.weather_code.push(current.weather_code);
     hourly.precipitation_probability.push(0);
+    hourly.wind_speed_10m.push(current.wind_speed_10m);
   }
 
   const dailyCount = Math.min(days, weatherDays.length, MAX_FORECAST_DAYS);
@@ -4171,8 +4184,113 @@ function updateForecastToggleActive(activeDays) {
   });
 }
 
+function clearDayDetail() {
+  selectedDailyIndex = null;
+  if (els.dayDetail) {
+    els.dayDetail.classList.add("hidden");
+    els.dayDetail.hidden = true;
+  }
+  if (els.dayDetailTitle) els.dayDetailTitle.textContent = "";
+  if (els.dayDetailHours) els.dayDetailHours.innerHTML = "";
+  els.dailyForecast?.querySelectorAll(".daily-item.is-selected").forEach((el) => {
+    el.classList.remove("is-selected");
+    el.setAttribute("aria-expanded", "false");
+  });
+}
+
+function getHourlyIndicesForDate(hourly, dateStr) {
+  if (!hourly?.time?.length || !dateStr) return [];
+  const indices = [];
+  hourly.time.forEach((iso, idx) => {
+    if (String(iso).slice(0, 10) === dateStr) indices.push(idx);
+  });
+  return indices;
+}
+
+function renderDayDetail(dayIndex) {
+  if (!els.dayDetail || !els.dayDetailHours || !els.dayDetailTitle) return;
+  if (
+    dayIndex == null ||
+    !currentWeatherDaily?.time?.[dayIndex] ||
+    !currentWeatherHourly?.time?.length
+  ) {
+    clearDayDetail();
+    return;
+  }
+
+  const dateStr = currentWeatherDaily.time[dayIndex];
+  const indices = getHourlyIndicesForDate(currentWeatherHourly, dateStr);
+  const label = formatDayLabel(
+    dateStr,
+    dayIndex,
+    Math.min(
+      getEffectiveDailyDisplayDays(),
+      currentWeatherDaily.time.length
+    )
+  );
+
+  if (!indices.length) {
+    selectedDailyIndex = dayIndex;
+    els.dayDetailTitle.textContent = `${label} · 無逐時資料`;
+    els.dayDetailHours.innerHTML = "";
+    els.dayDetail.classList.remove("hidden");
+    els.dayDetail.hidden = false;
+    els.dailyForecast?.querySelectorAll(".daily-item").forEach((el) => {
+      const isSelected = Number(el.dataset.dayIndex) === dayIndex;
+      el.classList.toggle("is-selected", isSelected);
+      el.setAttribute("aria-expanded", isSelected ? "true" : "false");
+    });
+    return;
+  }
+
+  selectedDailyIndex = dayIndex;
+  els.dayDetailTitle.textContent = `${label} · 逐時摘要`;
+  els.dayDetailHours.innerHTML = indices
+    .map((idx) => {
+      const iso = currentWeatherHourly.time[idx];
+      const hour = localHourFromIso(iso);
+      const temp = Math.round(currentWeatherHourly.temperature_2m[idx]);
+      const code = currentWeatherHourly.weather_code[idx];
+      const precip = currentWeatherHourly.precipitation_probability?.[idx];
+      const windRaw = currentWeatherHourly.wind_speed_10m?.[idx];
+      const precipHtml =
+        precip != null ? `<p class="precip">${Math.round(precip)}%</p>` : "";
+      const windHtml =
+        windRaw != null && !Number.isNaN(Number(windRaw))
+          ? `<p class="wind">${Math.round(windRaw)} <span>km/h</span></p>`
+          : "";
+      return `
+      <article class="day-detail-item">
+        <div class="mini-icon">${iconSvg("mini", code, hour)}</div>
+        <p class="label">${String(hour).padStart(2, "0")}:00</p>
+        <p class="value">${temp}°</p>
+        ${precipHtml}
+        ${windHtml}
+      </article>`;
+    })
+    .join("");
+
+  els.dayDetail.classList.remove("hidden");
+  els.dayDetail.hidden = false;
+
+  els.dailyForecast?.querySelectorAll(".daily-item").forEach((el) => {
+    const isSelected = Number(el.dataset.dayIndex) === dayIndex;
+    el.classList.toggle("is-selected", isSelected);
+    el.setAttribute("aria-expanded", isSelected ? "true" : "false");
+  });
+}
+
+function toggleDayDetail(dayIndex) {
+  if (selectedDailyIndex === dayIndex) {
+    clearDayDetail();
+    return;
+  }
+  renderDayDetail(dayIndex);
+}
+
 function renderDaily(daily, displayDays = getEffectiveDailyDisplayDays()) {
   currentWeatherDaily = daily;
+  clearDayDetail();
   if (!daily?.time?.length) {
     els.dailyForecast.innerHTML = "";
     els.dailyForecast.classList.remove("is-scroll");
@@ -4186,12 +4304,18 @@ function renderDaily(daily, displayDays = getEffectiveDailyDisplayDays()) {
     const code = daily.weather_code[index];
     const maxTemp = Math.round(daily.temperature_2m_max[index]);
     const minTemp = Math.round(daily.temperature_2m_min[index]);
+    const precipMax = daily.precipitation_probability_max?.[index];
+    const precipHtml =
+      precipMax != null
+        ? `<p class="precip">${Math.round(precipMax)}%</p>`
+        : "";
     return `
-      <article class="daily-item">
+      <button type="button" class="daily-item" data-day-index="${index}" aria-expanded="false" aria-controls="dayDetail">
         <p class="label">${formatDayLabel(dateStr, index, displayDays)}</p>
         <div class="mini-icon">${iconSvg("mini", code)}</div>
         <p class="temp-range"><span class="temp-high">${maxTemp}°</span> / <span class="temp-low">${minTemp}°</span></p>
-      </article>`;
+        ${precipHtml}
+      </button>`;
   }).join("");
 
   updateDailyTitle(count);
@@ -4235,6 +4359,7 @@ function renderWeather(city, weather) {
   els.cards?.weather?.classList.toggle("is-night", isNight);
 
   renderSun(weather.daily);
+  currentWeatherHourly = weather.hourly || null;
   renderHourly(weather.hourly, current.time);
   renderDaily(weather.daily);
   renderRainAlert(weather);
@@ -4463,6 +4588,16 @@ function bindEvents() {
       travelDailyOverride = null;
       saveDailyDisplayPreference(days);
       renderDaily(currentWeatherDaily, days);
+    });
+  }
+
+  if (els.dailyForecast) {
+    els.dailyForecast.addEventListener("click", (e) => {
+      const item = e.target.closest(".daily-item[data-day-index]");
+      if (!item) return;
+      const dayIndex = Number(item.dataset.dayIndex);
+      if (Number.isNaN(dayIndex)) return;
+      toggleDayDetail(dayIndex);
     });
   }
 

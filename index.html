@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" content="default" />
   <meta name="apple-mobile-web-app-title" content="天氣" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=20260749" />
+  <link rel="stylesheet" href="styles.css?v=20260750" />
   <script>
     (function () {
       try {
@@ -112,6 +112,10 @@
           </div>
         </div>
         <div class="daily" id="dailyForecast"></div>
+        <div class="day-detail hidden" id="dayDetail" hidden>
+          <p class="day-detail-title" id="dayDetailTitle"></p>
+          <div class="day-detail-hours" id="dayDetailHours"></div>
+        </div>
       </section>
 
       <section class="card card-outfit" aria-labelledby="outfitTitle">
@@ -196,6 +200,6 @@
     window.APP_CONFIG = window.APP_CONFIG || {};
   </script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260749" defer></script>
+  <script src="app.js?v=20260750" defer></script>
 </body>
 </html>

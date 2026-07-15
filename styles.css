@@ -1185,6 +1185,28 @@ html[data-theme="dark"] .weather-fx.fx-clear.fx-night::after {
   border-radius: var(--radius-sm);
   padding: 0.75rem 0.375rem;
   text-align: center;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.daily-item:hover {
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+.daily-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.daily-item.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 25%, transparent);
 }
 
 .daily-item .label {
@@ -1211,6 +1233,82 @@ html[data-theme="dark"] .weather-fx.fx-clear.fx-night::after {
 
 .daily-item .temp-low {
   color: var(--text-light);
+}
+
+.daily-item .precip {
+  margin: 0.2rem 0 0;
+  font-size: 0.7rem;
+  color: var(--text-mid);
+}
+
+.day-detail {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--text-light) 35%, transparent);
+}
+
+.day-detail.hidden {
+  display: none;
+}
+
+.day-detail-title {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-mid);
+}
+
+.day-detail-hours {
+  display: flex;
+  overflow-x: auto;
+  gap: 0.5rem;
+  padding-bottom: 0.2rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.day-detail-item {
+  background: var(--white);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.45rem;
+  text-align: center;
+  min-width: 4.35rem;
+  flex-shrink: 0;
+}
+
+.day-detail-item .mini-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0 auto 0.35rem;
+}
+
+.day-detail-item .label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-mid);
+}
+
+.day-detail-item .value {
+  margin: 0.2rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.day-detail-item .precip {
+  margin: 0.12rem 0 0;
+  font-size: 0.68rem;
+  color: var(--text-mid);
+}
+
+.day-detail-item .wind {
+  margin: 0.08rem 0 0;
+  font-size: 0.65rem;
+  color: var(--text-light);
+  line-height: 1.2;
+}
+
+.day-detail-item .wind span {
+  font-size: 0.58rem;
 }
 
 .card-title {

@@ -1,7 +1,7 @@
 {
   "name": "天氣查詢",
   "short_name": "天氣",
-  "description": "即時天氣、5 日預報、穿搭與旅遊行程摘要",
+  "description": "即時天氣、多日預報與逐時摘要、穿搭與旅遊行程",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
